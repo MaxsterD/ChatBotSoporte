@@ -1,0 +1,21 @@
+{
+  "name": "chatbotsoporte",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Soporte SismaSalud: app móvil para clientes y consola web para consultores, con agente Antigravity CLI",
+  "scripts": {
+    "setup": "npm install && npm --prefix server install && npm --prefix web install && npm --prefix mobile install",
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev:server\" \"npm run dev:web\"",
+    "dev:server": "npm --prefix server run dev",
+    "dev:web": "npm --prefix web run dev",
+    "dev:mobile": "npm --prefix mobile run start",
+    "db:seed": "npm --prefix server run db:seed",
+    "db:reset": "npm --prefix server run db:reset",
+    "db:studio": "npm --prefix server run db:studio",
+    "test": "npm --prefix server test",
+    "typecheck": "npm --prefix server run typecheck && npm --prefix web run typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

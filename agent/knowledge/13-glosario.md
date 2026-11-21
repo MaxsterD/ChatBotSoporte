@@ -1,0 +1,36 @@
+# Glosario
+
+- **IPS**: Institución Prestadora de Servicios de Salud (clínica, hospital, centro médico).
+- **EPS**: Entidad Promotora de Salud, responsable del aseguramiento.
+- **Afiliación**: vínculo del paciente con una EPS, régimen y plan.
+- **Régimen contributivo / subsidiado**: modalidades de aseguramiento en salud.
+- **SOAT**: seguro obligatorio de accidentes de tránsito.
+- **Atención**: episodio asistencial del paciente; base para historia clínica y facturación.
+- **Admisión**: apertura formal de la atención.
+- **Censo**: registro de pacientes hospitalizados y ocupación de camas.
+- **Historia clínica (HC)**: registro de la atención, evolución, diagnósticos y órdenes.
+- **CUPS**: Clasificación Única de Procedimientos en Salud; código del procedimiento.
+- **CIE-10**: clasificación internacional de enfermedades; código del diagnóstico.
+- **Orden médica**: indicación de medicamento, procedimiento o paraclínico.
+- **Autorización**: aprobación de la EPS para cubrir un servicio.
+- **Copago / cuota moderadora**: pago del usuario por el servicio.
+- **Contrato**: acuerdo con la EPS que define tarifas, coberturas y reglas de facturación.
+- **Tarifario**: lista de precios por contrato.
+- **Factura**: documento de cobro por los servicios prestados.
+- **Nota crédito**: documento que anula total o parcialmente una factura.
+- **Nota de ajuste**: corrige valores o datos de una factura.
+- **RIPS**: Registro Individual de Prestación de Servicios; archivo obligatorio para el
+  reporte de atenciones a la EPS o ente correspondiente.
+- **Remisión (RIPS)**: número que agrupa las facturas incluidas en un RIPS.
+- **Glosa**: objeción de la EPS a un cobro; se responde con soportes.
+- **Reversión**: anulación de un pago o de un RIPS.
+- **Facturación electrónica**: emisión y envío de la factura a la DIAN con CUFE.
+- **CUFE**: código único de factura electrónica.
+- **PYP**: Promoción y Prevención.
+- **RIAS**: Rutas Integrales de Atención en Salud.
+- **Tamizaje**: prueba o cuestionario para detectar riesgo.
+- **PQRS**: peticiones, quejas, reclamos y sugerencias.
+- **Digiturno**: asignación y llamado de turnos en sala de espera.
+- **Agenda**: disponibilidad de horarios de un profesional en una sede.
+- **Sede**: unidad física de la institución; muchas configuraciones son por sede.
+- **Perfil**: conjunto de permisos asignado a un usuario.

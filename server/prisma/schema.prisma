@@ -1,0 +1,258 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CLIENTE
+  CONSULTOR
+  ADMIN
+}
+
+enum ChatStatus {
+  BOT
+  WAITING
+  ASSIGNED
+  CLOSED
+}
+
+enum AuthorType {
+  USER
+  BOT
+  CONSULTANT
+  SYSTEM
+}
+
+enum EscalationReason {
+  BOT
+  USER_REQUEST
+  AGENT_ERROR
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(CLIENTE)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  environmentId   String?
+  environment     ClientEnvironment? @relation(fields: [environmentId], references: [id])
+
+  chats           Chat[]           @relation("CustomerChats")
+  assignedChats   Chat[]           @relation("ConsultantChats")
+  messages        Message[]
+  notes           ConsultantNote[]
+  refreshTokens   RefreshToken[]
+  performedEvents ChatEvent[]
+  copilotTurns    CopilotTurn[]
+  staffAgentSessions StaffAgentSession[]
+}
+
+model Chat {
+  id                    String     @id @default(uuid())
+  userId                String
+  user                  User       @relation("CustomerChats", fields: [userId], references: [id], onDelete: Cascade)
+  title                 String
+  status                ChatStatus @default(BOT)
+  agyConversationId     String?
+  assignedConsultantId  String?
+  assignedConsultant    User?      @relation("ConsultantChats", fields: [assignedConsultantId], references: [id])
+  environmentId         String?
+  environment           ClientEnvironment? @relation(fields: [environmentId], references: [id])
+  queueEnteredAt        DateTime?
+  takenAt               DateTime?
+  closedAt              DateTime?
+  unreadCount           Int        @default(0)
+  lastMessagePreview    String     @default("")
+  lastMessageAt         DateTime   @default(now())
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  messages     Message[]
+  escalation   Escalation?
+  notes        ConsultantNote[]
+  events       ChatEvent[]
+  copilotTurns CopilotTurn[]
+
+  @@index([status, lastMessageAt])
+  @@index([userId, lastMessageAt])
+  @@index([assignedConsultantId])
+  @@index([environmentId])
+}
+
+model Message {
+  id         String     @id @default(uuid())
+  chatId     String
+  chat       Chat       @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  authorType AuthorType
+  authorId   String?
+  author     User?      @relation(fields: [authorId], references: [id])
+  content    String
+  imageUrl   String?
+  internal   Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+
+  @@index([chatId, createdAt])
+}
+
+model Escalation {
+  id                String           @id @default(uuid())
+  chatId            String           @unique
+  chat              Chat             @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  reason            EscalationReason
+  summary           String           @default("")
+  probableCause     String           @default("")
+  suggestedSolution String           @default("")
+  missingInfo       String           @default("")
+  ready             Boolean          @default(false)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+}
+
+model ConsultantNote {
+  id        String   @id @default(uuid())
+  chatId    String
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([chatId, createdAt])
+}
+
+model ChatEvent {
+  id        String   @id @default(uuid())
+  chatId    String
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  type      String
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([chatId, createdAt])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model ClientEnvironment {
+  id                    String   @id @default(uuid())
+  name                  String   @unique
+  description           String?
+  active                Boolean  @default(true)
+
+  // Configuración SQL Server
+  dbServer              String
+  dbPort                Int      @default(1433)
+  dbDatabase            String
+  dbUser                String
+  dbPasswordEncrypted   String
+
+  // Configuración Código Fuente (SMB / UNC / Local)
+  sourceType            String   @default("SMB_UNC") // "SMB_UNC" | "LOCAL_PATH"
+  sourcePath            String
+  smbUser               String?
+  smbPasswordEncrypted  String?
+  smbDomain             String?
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  users                 User[]
+  chats                 Chat[]
+  staffAgentSessions    StaffAgentSession[]
+}
+
+model CopilotTurn {
+  id              String   @id @default(uuid())
+  chatId          String
+  chat            Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  authorId        String?
+  author          User?    @relation(fields: [authorId], references: [id])
+  role            String   // "CONSULTANT" | "COPILOT" | "SYSTEM"
+  content         String
+  status          String   @default("INFO") // "INFO" | "PROPOSED" | "APPROVED" | "REJECTED" | "EXECUTED" | "FAILED"
+  proposedAction  Json?    // { type: "SQL"|"FILE", sql?: string, filePath?: string, diff?: string, description: string }
+  executionResult Json?    // { success: boolean, output?: string, backupPath?: string, rowsAffected?: number }
+  createdAt       DateTime @default(now())
+
+  @@index([chatId, createdAt])
+}
+
+model LocalEnvironmentConfig {
+  id                  String   @id @default("default")
+  dbServer            String   @default("10.120.2.2")
+  dbPort              Int      @default(1433)
+  dbDatabase          String   @default("SismaSalud_Testing")
+  dbUser              String   @default("soporte")
+  dbPasswordEncrypted String?
+  dbEnabled           Boolean  @default(true)
+  sourcePath          String   @default("C:\\inetpub\\wwwroot\\SismaSalud")
+  updatedAt           DateTime @updatedAt
+}
+
+model StaffAgentSession {
+  id                String   @id @default(uuid())
+  consultantId      String
+  consultant        User     @relation(fields: [consultantId], references: [id], onDelete: Cascade)
+  title             String   @default("Nueva Consulta Técnica")
+  environmentId     String?
+  environment       ClientEnvironment? @relation(fields: [environmentId], references: [id], onDelete: SetNull)
+  agyConversationId String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  messages          StaffAgentMessage[]
+
+  @@index([consultantId, updatedAt])
+  @@index([environmentId])
+}
+
+model StaffAgentMessage {
+  id              String   @id @default(uuid())
+  sessionId       String
+  session         StaffAgentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role            String   // "CONSULTANT" | "AGENT"
+  content         String
+  imageUrl        String?
+  planAction      Json?
+  executionResult Json?
+  createdAt       DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+}
+
+model BusinessHoursConfig {
+  id            String   @id @default("default")
+  enabled       Boolean  @default(true)
+  timezone      String   @default("America/Bogota")
+  daysEnabled   String   @default("1,2,3,4,5")
+  startHour     Int      @default(8)
+  startMinute   Int      @default(0)
+  endHour       Int      @default(17)
+  endMinute     Int      @default(0)
+  customMessage String   @default("En estos momentos no hay servicio disponible. Vuelve a ponerte en contacto en nuestro horario de atención: Lunes a Viernes de 8:00 am a 5:00 pm.")
+  updatedAt     DateTime @updatedAt
+}
+
+
+

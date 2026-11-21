@@ -1,0 +1,61 @@
+# Dependencias
+node_modules/
+*/node_modules/
+
+# Compilaciones y builds
+dist/
+dist-ssr/
+build/
+web-build/
+coverage/
+*.tsbuildinfo
+
+# Expo & React Native
+.expo/
+.expo-shared/
+expo-env.d.ts
+android/.gradle/
+android/app/build/
+ios/Pods/
+/ios
+/android
+
+# Archivos de entorno y credenciales (SOLO se versionan los .env.example)
+.env
+.env.*
+*.env
+!.env.example
+!*/.env.example
+
+# Logs y depuración
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Archivos de sistema y editores
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.claude/
+.gemini/
+
+# Base de datos local SQLite y temporales Prisma
+server/prisma/*.db
+server/prisma/*.db-journal
+
+# Subidas de archivos de usuario (solo se conserva .gitkeep)
+server/uploads/*
+!server/uploads/.gitkeep
+
+# Archivos empaquetados pesados
+*.zip
+*.tar.gz

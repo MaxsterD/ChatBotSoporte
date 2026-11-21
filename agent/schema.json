@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["answer", "escalate", "analysis"],
+  "properties": {
+    "answer": {
+      "type": "string",
+      "description": "Respuesta final para el cliente, en español, texto plano, sin JSON, sin rutas de archivos y sin enlaces locales. Máximo 6 frases o una lista corta."
+    },
+    "escalate": {
+      "type": "boolean",
+      "description": "true si el caso debe pasar a un asesor humano."
+    },
+    "analysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "probableCause", "suggestedSolution", "missingInfo"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "Qué encontraste y qué necesita el cliente, en 1 o 2 frases."
+        },
+        "probableCause": {
+          "type": "string",
+          "description": "Causa más probable del problema según la base de conocimiento y el código de SismaSalud."
+        },
+        "suggestedSolution": {
+          "type": "string",
+          "description": "Pasos concretos que el asesor debe ejecutar o indicar al cliente."
+        },
+        "missingInfo": {
+          "type": "string",
+          "description": "Datos que faltan confirmar con el cliente (sede, usuario, módulo, mensaje de error, etc.)."
+        }
+      }
+    }
+  }
+}
