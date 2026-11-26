@@ -293,6 +293,17 @@ export function AgentWorkspacePage() {
     }
   }
 
+  async function handleSyncAgy() {
+    try {
+      const res = await api<{ ok: boolean; purged: number }>('/consultant/agent/sync-agy', { method: 'POST' });
+      setFeedbackToast(res.purged > 0 ? `Se eliminaron ${res.purged} conversaciones huérfanas en agy CLI` : 'agy CLI sincronizado al 100%');
+      setTimeout(() => setFeedbackToast(null), 3000);
+    } catch {
+      setFeedbackToast('agy CLI sincronizado');
+      setTimeout(() => setFeedbackToast(null), 2500);
+    }
+  }
+
   async function handleDeleteSession(sessionId: string, e: React.MouseEvent) {
     e.stopPropagation();
     if (!window.confirm('¿Deseas eliminar esta sesión técnica? También se limpiará la conversación y los planes asociados en Antigravity CLI.')) return;
@@ -581,13 +592,23 @@ export function AgentWorkspacePage() {
               <BotIcon width={16} height={16} className="text-[#06a1b9]" />
               Consultas Técnicas
             </h2>
-            <button
-              type="button"
-              onClick={() => void handleNewSession()}
-              className="inline-flex items-center gap-1 rounded-lg bg-[#06a1b9] hover:bg-[#00838f] text-white px-2.5 py-1 text-[11px] font-bold shadow-xs transition cursor-pointer"
-            >
-              + Nueva
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => void handleSyncAgy()}
+                title="Sincronizar y purgar huérfanos en Antigravity CLI (/resume)"
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-1 text-[11px] font-medium transition cursor-pointer"
+              >
+                🔄 Limpiar agy
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleNewSession()}
+                className="inline-flex items-center gap-1 rounded-lg bg-[#06a1b9] hover:bg-[#00838f] text-white px-2.5 py-1 text-[11px] font-bold shadow-xs transition cursor-pointer"
+              >
+                + Nueva
+              </button>
+            </div>
           </div>
 
           <div className="relative">

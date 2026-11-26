@@ -23,7 +23,7 @@ import { buildAnalysisPrompt, buildTurnPrompt } from '../agent/prompts';
 import { clipText } from '../agent/sanitize';
 import { userWantsHuman, isOfferingHumanQuestion, isAffirmativeResponse } from '../agent/intent';
 import { sismaDb } from '../agent/db/sismaDb';
-import { deleteAgyConversation } from '../agent/conversationManager';
+import { deleteAgyConversation, purgeOrphanAgyConversations } from '../agent/conversationManager';
 import { getEnvironmentSupportContext } from '../environments/service';
 import { checkBusinessHoursStatus } from '../businessHours/service';
 import type { AgentAnalysis } from '../agent/types';
@@ -1040,7 +1040,7 @@ export async function updateClientEnvironment(userId: string, environmentId: str
 }
 
 /**
- * Elimina un chat y sincroniza la eliminación en Antigravity CLI si tenía conversación agy.
+ * Elimina un chat y sincroniza la eliminación en Antigravity CLI (conversation_summaries.db y disco).
  */
 export async function deleteChat(chatId: string, userId: string, role?: string) {
   const chat = await prisma.chat.findUnique({ where: { id: chatId } });
@@ -1049,12 +1049,11 @@ export async function deleteChat(chatId: string, userId: string, role?: string) 
     throw forbidden('No tienes permiso para eliminar este chat');
   }
 
-  if (chat.agyConversationId) {
-    try {
-      await deleteAgyConversation(chat.agyConversationId);
-    } catch (err) {
-      console.warn(`[chats] Aviso al limpiar conversación agy ${chat.agyConversationId}:`, err);
-    }
+  try {
+    await deleteAgyConversation(chat.agyConversationId, chat.title);
+    await purgeOrphanAgyConversations();
+  } catch (err) {
+    console.warn(`[chats] Aviso al limpiar conversación agy ${chat.agyConversationId}:`, err);
   }
 
   await prisma.chat.delete({ where: { id: chatId } });

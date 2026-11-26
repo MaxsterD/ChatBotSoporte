@@ -10,7 +10,7 @@ import { getRawLocalEnvironmentConfig } from '../config/localEnvironment';
 import { decryptCredential } from '../lib/crypto';
 import { sismaDb } from '../agent/db/sismaDb';
 import { resolveAgyBinary } from '../agent/bridge';
-import { deleteAgyConversation } from '../agent/conversationManager';
+import { deleteAgyConversation, purgeOrphanAgyConversations } from '../agent/conversationManager';
 import { getEnvironmentDbPool } from '../environments/service';
 
 export interface ProposedPlanAction {
@@ -184,13 +184,12 @@ export async function deleteStaffSession(sessionId: string, consultantId: string
   if (!session) throw notFound('Sesión no encontrada');
   if (session.consultantId !== consultantId && role !== 'ADMIN') throw forbidden('Acceso denegado');
 
-  // Limpieza sincronizada en Antigravity CLI si la sesión contenía conversación agy
-  if (session.agyConversationId) {
-    try {
-      await deleteAgyConversation(session.agyConversationId);
-    } catch (err) {
-      console.warn(`[staff-agent] Aviso al limpiar conversación agy ${session.agyConversationId}:`, err);
-    }
+  // Limpieza sincronizada en Antigravity CLI (conversation_summaries.db y disco)
+  try {
+    await deleteAgyConversation(session.agyConversationId, session.title);
+    await purgeOrphanAgyConversations();
+  } catch (err) {
+    console.warn(`[staff-agent] Aviso al limpiar conversación agy ${session.agyConversationId}:`, err);
   }
 
   await prisma.staffAgentSession.delete({ where: { id: sessionId } });

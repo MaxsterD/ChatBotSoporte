@@ -12,6 +12,7 @@ import {
   updateStaffPlanAction,
   updateStaffSessionEnvironment,
 } from '../staffAgent/service';
+import { purgeOrphanAgyConversations } from '../agent/conversationManager';
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
@@ -156,5 +157,12 @@ export async function staffAgentRoutes(app: FastifyInstance) {
       filePath: body.filePath,
       replacementContent: body.replacementContent,
     });
+  });
+
+  // Purgar huérfanos de agy CLI
+  app.post('/consultant/agent/sync-agy', async (request) => {
+    requireUser(request);
+    const purged = await purgeOrphanAgyConversations();
+    return { ok: true, purged };
   });
 }

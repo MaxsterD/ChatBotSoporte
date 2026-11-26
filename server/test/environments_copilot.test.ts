@@ -29,7 +29,7 @@ import {
   executeStaffPlanAction,
   updateStaffPlanAction,
 } from '../src/staffAgent/service';
-import { deleteAgyConversation } from '../src/agent/conversationManager';
+import { deleteAgyConversation, purgeOrphanAgyConversations } from '../src/agent/conversationManager';
 import { env } from '../src/env';
 
 test('Gestión de Entornos de Cliente y Copiloto IA', async (t) => {
@@ -457,6 +457,10 @@ test('Gestión de Entornos de Cliente y Copiloto IA', async (t) => {
 
     // Probar deleteAgyConversation directamente con id no existente para comprobar idempotencia
     await deleteAgyConversation('fake-conv-id-nonexistent');
+
+    // Probar purgeOrphanAgyConversations
+    const purged = await purgeOrphanAgyConversations();
+    assert.equal(typeof purged, 'number');
 
     await prisma.user.delete({ where: { id: dummyClient.id } }).catch(() => {});
   });

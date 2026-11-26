@@ -3,12 +3,21 @@ import { env } from './env';
 import { prisma } from './db';
 import { initRealtime, getIo } from './realtime/io';
 import { agentQueue } from './chats/service';
+import { purgeOrphanAgyConversations } from './agent/conversationManager';
 
 const app = await buildApp();
 
 try {
   await app.listen({ host: env.HOST, port: env.PORT });
   initRealtime(app.server);
+
+  purgeOrphanAgyConversations()
+    .then((purged) => {
+      if (purged > 0) {
+        app.log.info(`[agy-clean] Se purgaron ${purged} conversaciones huérfanas en Antigravity CLI`);
+      }
+    })
+    .catch(() => {});
 
   app.log.info(
     `API lista en http://localhost:${env.PORT} · agente=${env.AGENT_MODE} · modelo=${env.AGY_MODEL}`,
