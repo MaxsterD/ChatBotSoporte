@@ -1,11 +1,16 @@
 function resolveApiUrl(): string {
+  const envUrl = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '');
+  if (envUrl) return envUrl;
+
   if (typeof window !== 'undefined' && window.location?.hostname) {
     const proto = window.location.protocol || 'http:';
     const host = window.location.hostname;
-    return `${proto}//${host}:4000`;
+    if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('26.')) {
+      return `${proto}//${host}:4000`;
+    }
+    return `${proto}//${host}`;
   }
-  const envUrl = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '');
-  return envUrl || 'http://26.237.103.241:4000';
+  return 'http://localhost:4000';
 }
 
 const API_URL = resolveApiUrl();

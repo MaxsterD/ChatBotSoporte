@@ -47,6 +47,7 @@ Thumbs.db
 *.sw?
 .claude/
 .gemini/
+.git_old/
 
 # Base de datos local SQLite y temporales Prisma
 server/prisma/*.db

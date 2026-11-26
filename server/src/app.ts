@@ -154,5 +154,31 @@ export async function buildApp() {
   await app.register(businessHoursRoutes);
   await app.register(uploadRoutes);
 
+  // Servir cliente Web SPA si existe la carpeta compilada (web/dist)
+  const webDistDir = path.resolve(repoRoot, 'web', 'dist');
+  if (fs.existsSync(webDistDir)) {
+    await app.register(fastifyStatic, {
+      root: webDistDir,
+      prefix: '/',
+      decorateReply: false,
+    });
+
+    app.setNotFoundHandler((request, reply) => {
+      const url = request.raw.url || '';
+      if (
+        url.startsWith('/auth') ||
+        url.startsWith('/chats') ||
+        url.startsWith('/consultant') ||
+        url.startsWith('/business-hours') ||
+        url.startsWith('/uploads') ||
+        url.startsWith('/health') ||
+        url.startsWith('/socket.io')
+      ) {
+        return reply.code(404).send({ error: { code: 'not_found', message: 'Ruta no encontrada' } });
+      }
+      return reply.sendFile('index.html', webDistDir);
+    });
+  }
+
   return app;
 }
