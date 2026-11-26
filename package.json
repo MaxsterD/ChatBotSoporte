@@ -3,8 +3,12 @@
   "private": true,
   "version": "1.0.0",
   "description": "Soporte SismaSalud: app móvil para clientes y consola web para consultores, con agente Antigravity CLI",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
-    "setup": "npm install && npm --prefix server install && npm --prefix web install && npm --prefix mobile install",
+    "setup": "npm --prefix server install --include=dev && npm --prefix web install --include=dev",
+    "setup:all": "npm install && npm --prefix server install && npm --prefix web install && npm --prefix mobile install",
     "build": "npm --prefix server run generate && npm --prefix web run build",
     "start": "npm --prefix server run db:push && npm --prefix server start",
     "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev:server\" \"npm run dev:web\"",
