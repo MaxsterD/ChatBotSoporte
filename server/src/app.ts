@@ -118,7 +118,7 @@ export async function buildApp() {
     });
   });
 
-  app.get('/', async () => ({
+  app.get('/api', async () => ({
     name: 'Soporte SismaSalud API',
     version: '1.0.0',
     docs: '/health',
@@ -156,28 +156,49 @@ export async function buildApp() {
 
   // Servir cliente Web SPA si existe la carpeta compilada (web/dist)
   const webDistDir = path.resolve(repoRoot, 'web', 'dist');
-  if (fs.existsSync(webDistDir)) {
+  const indexHtmlPath = path.join(webDistDir, 'index.html');
+  const hasWebDist = fs.existsSync(indexHtmlPath);
+
+  if (hasWebDist) {
     await app.register(fastifyStatic, {
       root: webDistDir,
       prefix: '/',
       decorateReply: false,
     });
 
-    app.setNotFoundHandler((request, reply) => {
+    const sendIndex = async (_request: unknown, reply: { type: (contentType: string) => { send: (payload: string | Buffer) => unknown } }) => {
+      const html = await fs.promises.readFile(indexHtmlPath, 'utf8');
+      return reply.type('text/html; charset=utf-8').send(html);
+    };
+
+    app.get('/', sendIndex);
+
+    app.setNotFoundHandler(async (request, reply) => {
       const url = request.raw.url || '';
       if (
+        url.startsWith('/api') ||
         url.startsWith('/auth') ||
         url.startsWith('/chats') ||
         url.startsWith('/consultant') ||
+        url.startsWith('/environments') ||
+        url.startsWith('/copilot') ||
+        url.startsWith('/staff-agent') ||
         url.startsWith('/business-hours') ||
+        url.startsWith('/upload') ||
         url.startsWith('/uploads') ||
         url.startsWith('/health') ||
         url.startsWith('/socket.io')
       ) {
-        return reply.code(404).send({ error: { code: 'not_found', message: 'Ruta no encontrada' } });
+        return reply.code(404).send({ error: { code: 'not_found', message: 'Ruta de API no encontrada' } });
       }
-      return reply.sendFile('index.html', webDistDir);
+      return sendIndex(request, reply);
     });
+  } else {
+    app.get('/', async () => ({
+      name: 'Soporte SismaSalud API',
+      version: '1.0.0',
+      docs: '/health',
+    }));
   }
 
   return app;
