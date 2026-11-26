@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { API_URL, RADMIN_DEFAULT_URL, setCustomApiUrl, resetServerUrlToRadmin } from '../api';
+import { API_URL, RAILWAY_DEFAULT_URL, RADMIN_DEFAULT_URL, setCustomApiUrl } from '../api';
 import { useSession } from '../context/SessionContext';
 import { useTheme } from '../context/ThemeContext';
 import { radius, type ThemeColors } from '../theme';
@@ -55,13 +55,6 @@ export function LoginScreen() {
     if (!editingUrl.trim()) return;
     const updated = await setCustomApiUrl(editingUrl.trim());
     setCurrentUrl(updated);
-    setShowServerModal(false);
-  }
-
-  async function handleResetToRadmin() {
-    const updated = await resetServerUrlToRadmin();
-    setCurrentUrl(updated);
-    setEditingUrl(updated);
     setShowServerModal(false);
   }
 
@@ -313,16 +306,22 @@ export function LoginScreen() {
             <View style={styles.quickPresets}>
               <Text style={styles.presetsLabel}>Accesos rápidos:</Text>
               <Pressable
-                onPress={() => setEditingUrl(RADMIN_DEFAULT_URL)}
+                onPress={() => setEditingUrl(RAILWAY_DEFAULT_URL)}
                 style={styles.presetChip}
               >
-                <Text style={styles.presetChipText}>⚡ Radmin VPN ({RADMIN_DEFAULT_URL})</Text>
+                <Text style={styles.presetChipText}>☁️ Railway Producción ({RAILWAY_DEFAULT_URL})</Text>
               </Pressable>
               <Pressable
                 onPress={() => setEditingUrl('http://localhost:4000')}
                 style={styles.presetChip}
               >
                 <Text style={styles.presetChipText}>💻 Localhost (http://localhost:4000)</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setEditingUrl(RADMIN_DEFAULT_URL)}
+                style={styles.presetChip}
+              >
+                <Text style={styles.presetChipText}>⚡ Radmin VPN ({RADMIN_DEFAULT_URL})</Text>
               </Pressable>
             </View>
 
