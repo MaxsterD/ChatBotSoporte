@@ -7,7 +7,7 @@ import { formatDateTime, formatRelative, formatTime, initials } from '../lib/for
 import type { ChatDetail } from '../lib/types';
 import { AnalysisPanel } from './AnalysisPanel';
 import { CopilotPanel } from './CopilotPanel';
-import { ArrowLeftIcon, CheckIcon, CloseCircleIcon, ImageIcon, NoteIcon, SendIcon, SparkIcon } from './Icons';
+import { ArrowLeftIcon, CheckIcon, CloseCircleIcon, ImageIcon, NoteIcon, SendIcon, SparkIcon, TrashIcon } from './Icons';
 import { StatusBadge } from './StatusBadge';
 
 export function Conversation({
@@ -127,6 +127,18 @@ export function Conversation({
     void runAction(
       () => api(`/consultant/chats/${chatId}/close`, { method: 'POST' }),
       'No se pudo cerrar la conversación',
+    );
+  }
+
+  function deleteCurrentChat() {
+    if (!window.confirm('¿Deseas eliminar definitivamente este chat? También se limpiará la conversación en Antigravity CLI.')) return;
+    void runAction(
+      async () => {
+        await api(`/consultant/chats/${chatId}`, { method: 'DELETE' });
+        if (onBack) onBack();
+        else window.location.reload();
+      },
+      'No se pudo eliminar el chat',
     );
   }
 
@@ -267,6 +279,15 @@ export function Conversation({
               <span>Copiloto ({chat.environment.name})</span>
             </button>
           )}
+          <button
+            type="button"
+            onClick={deleteCurrentChat}
+            disabled={busy}
+            title="Eliminar chat y sincronizar con Antigravity CLI"
+            className="rounded-lg border border-slate-200 dark:border-[#1c2f48] p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer disabled:opacity-50"
+          >
+            <TrashIcon width={14} height={14} />
+          </button>
         </div>
       </header>
 

@@ -134,6 +134,8 @@ export async function staffAgentRoutes(app: FastifyInstance) {
       z.object({
         title: z.string().optional(),
         description: z.string().optional(),
+        steps: z.array(z.string()).optional(),
+        verificationCriteria: z.string().optional(),
         sql: z.string().optional(),
         filePath: z.string().optional(),
         replacementContent: z.string().optional(),
@@ -148,6 +150,8 @@ export async function staffAgentRoutes(app: FastifyInstance) {
       role: user.role,
       title: body.title,
       description: body.description,
+      steps: body.steps,
+      verificationCriteria: body.verificationCriteria,
       sql: body.sql,
       filePath: body.filePath,
       replacementContent: body.replacementContent,

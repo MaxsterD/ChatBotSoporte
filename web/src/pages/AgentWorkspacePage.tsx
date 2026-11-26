@@ -205,12 +205,16 @@ export function AgentWorkspacePage() {
   const [editPlanForm, setEditPlanForm] = useState<{
     title: string;
     description: string;
+    steps: string;
+    verificationCriteria: string;
     sql: string;
     filePath: string;
     replacementContent: string;
   }>({
     title: '',
     description: '',
+    steps: '',
+    verificationCriteria: '',
     sql: '',
     filePath: '',
     replacementContent: '',
@@ -291,12 +295,14 @@ export function AgentWorkspacePage() {
 
   async function handleDeleteSession(sessionId: string, e: React.MouseEvent) {
     e.stopPropagation();
-    if (!window.confirm('¿Deseas eliminar esta sesión técnica?')) return;
+    if (!window.confirm('¿Deseas eliminar esta sesión técnica? También se limpiará la conversación y los planes asociados en Antigravity CLI.')) return;
 
     try {
       await api(`/consultant/agent/sessions/${sessionId}`, { method: 'DELETE' });
       const nextSessions = sessions.filter((s) => s.id !== sessionId);
       setSessions(nextSessions);
+      setFeedbackToast('Sesión y datos en agy CLI eliminados exitosamente');
+      setTimeout(() => setFeedbackToast(null), 3000);
       if (activeSessionId === sessionId) {
         if (nextSessions.length > 0) {
           loadSessionDetail(nextSessions[0].id);
@@ -483,6 +489,8 @@ export function AgentWorkspacePage() {
     setEditPlanForm({
       title: message.planAction.title || '',
       description: message.planAction.description || '',
+      steps: (message.planAction.steps || []).join('\n'),
+      verificationCriteria: message.planAction.verificationCriteria || '',
       sql: message.planAction.sql || '',
       filePath: message.planAction.filePath || '',
       replacementContent: message.planAction.replacementContent || '',
@@ -497,12 +505,25 @@ export function AgentWorkspacePage() {
     if (!activeSessionId) return;
     setSavingPlan(true);
     try {
+      const parsedSteps = editPlanForm.steps
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
       const res = await api<{
         id: string;
         planAction: NonNullable<StaffMessage['planAction']>;
       }>(`/consultant/agent/sessions/${activeSessionId}/messages/${messageId}/plan`, {
         method: 'PATCH',
-        body: editPlanForm,
+        body: {
+          title: editPlanForm.title,
+          description: editPlanForm.description,
+          steps: parsedSteps,
+          verificationCriteria: editPlanForm.verificationCriteria,
+          sql: editPlanForm.sql,
+          filePath: editPlanForm.filePath,
+          replacementContent: editPlanForm.replacementContent,
+        },
       });
 
       setActiveSession((prev) => {
@@ -793,6 +814,28 @@ export function AgentWorkspacePage() {
                                   />
                                 </div>
 
+                                <div>
+                                  <label className="block text-[10px] font-semibold text-slate-500 uppercase">Tareas / Pasos de Implementación (uno por línea)</label>
+                                  <textarea
+                                    rows={3}
+                                    value={editPlanForm.steps}
+                                    onChange={(e) => setEditPlanForm((p) => ({ ...p, steps: e.target.value }))}
+                                    placeholder="1. Validar registros...&#10;2. Ejecutar actualización..."
+                                    className="mt-0.5 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-xs text-slate-800 dark:text-slate-100 focus:outline-hidden focus:border-[#06a1b9]"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[10px] font-semibold text-slate-500 uppercase">Criterio de Verificación</label>
+                                  <input
+                                    type="text"
+                                    value={editPlanForm.verificationCriteria}
+                                    onChange={(e) => setEditPlanForm((p) => ({ ...p, verificationCriteria: e.target.value }))}
+                                    placeholder="Cómo comprobar que el cambio quedó bien aplicado"
+                                    className="mt-0.5 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-xs text-slate-800 dark:text-slate-100 focus:outline-hidden focus:border-[#06a1b9]"
+                                  />
+                                </div>
+
                                 {message.planAction.type === 'SQL' ? (
                                   <div>
                                     <label className="block text-[10px] font-semibold text-slate-500 uppercase">Sentencia SQL Ejecutable</label>
@@ -850,24 +893,40 @@ export function AgentWorkspacePage() {
                               /* Modo Visualización del Plan */
                               <>
                                 <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2 border-b border-[#06a1b9]/20">
-                                  <span className="text-[11.5px] font-bold text-[#002b49] dark:text-[#b2ebf2] flex items-center gap-1.5">
+                                  <span className="text-[12px] font-bold text-[#002b49] dark:text-[#b2ebf2] flex items-center gap-1.5">
                                     <PlayIcon width={13} height={13} className="text-[#06a1b9]" />
-                                    {message.planAction.title || 'Plan de Acción Propuesto'}
+                                    <span>Artifact: {message.planAction.title || 'Plan de Implementación (/plan)'}</span>
                                   </span>
-                                  <div className="flex items-center gap-1.5">
+                                  <div className="flex flex-wrap items-center gap-1.5">
                                     <span className="rounded-full bg-[#06a1b9]/20 border border-[#06a1b9]/30 px-2 py-0.5 text-[9.5px] font-bold text-[#006064] dark:text-[#80deea]">
                                       {message.planAction.type === 'SQL' ? 'SCRIPT SQL (BD)' : 'MODIFICACIÓN DE ARCHIVOS'}
                                     </span>
+                                    {message.planAction.status === 'PROPOSED' ? (
+                                      <span className="rounded-full bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 text-[9.5px] font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                        Pendiente de Aprobación
+                                      </span>
+                                    ) : message.planAction.status === 'EXECUTED' ? (
+                                      <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-[9.5px] font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+                                        <CheckIcon width={11} height={11} />
+                                        Build Ejecutado
+                                      </span>
+                                    ) : (
+                                      <span className="rounded-full bg-slate-500/15 border border-slate-500/30 px-2.5 py-0.5 text-[9.5px] font-bold text-slate-500">
+                                        Descartado
+                                      </span>
+                                    )}
+
                                     {message.planAction.status === 'PROPOSED' && (
                                       <>
                                         <button
                                           type="button"
                                           onClick={() => handleStartEditPlan(message)}
-                                          title="Editar directamente la query o archivo"
+                                          title="Editar directamente los pasos, query o archivo"
                                           className="inline-flex items-center gap-1 rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition cursor-pointer"
                                         >
                                           <EditIcon width={11} height={11} className="text-[#06a1b9]" />
-                                          <span>Editar</span>
+                                          <span>✏️ Modificar Plan</span>
                                         </button>
                                         <button
                                           type="button"
@@ -876,7 +935,7 @@ export function AgentWorkspacePage() {
                                           className="inline-flex items-center gap-1 rounded-md border border-[#06a1b9]/40 bg-[#06a1b9]/15 px-2 py-0.5 text-[10px] font-semibold text-[#006064] dark:text-[#80deea] hover:bg-[#06a1b9]/25 transition cursor-pointer"
                                         >
                                           <RefreshIcon width={11} height={11} className="text-[#06a1b9]" />
-                                          <span>Ajustar con IA</span>
+                                          <span>🔄 Ajustar con IA</span>
                                         </button>
                                       </>
                                     )}
@@ -887,9 +946,42 @@ export function AgentWorkspacePage() {
                                   {message.planAction.description}
                                 </p>
 
+                                {/* Tareas / Pasos del Plan si existen */}
+                                {message.planAction.steps && message.planAction.steps.length > 0 && (
+                                  <div className="mt-2.5 rounded-lg bg-white/70 dark:bg-slate-900/60 p-2.5 border border-[#06a1b9]/20">
+                                    <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                      <span>📋 Tareas del Plan de Implementación (/plan):</span>
+                                    </div>
+                                    <div className="space-y-1">
+                                      {message.planAction.steps.map((step, sIdx) => (
+                                        <div key={sIdx} className="flex items-start gap-2 text-[11px] text-slate-700 dark:text-slate-200">
+                                          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#06a1b9]/20 text-[#006064] dark:text-[#80deea] text-[9.5px] font-bold">
+                                            {sIdx + 1}
+                                          </span>
+                                          <span className="leading-tight">{step}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Criterio de Verificación */}
+                                {message.planAction.verificationCriteria && (
+                                  <div className="mt-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2 text-[11px] text-amber-900 dark:text-amber-200">
+                                    <div className="flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-0.5">
+                                      <SparkIcon width={11} height={11} />
+                                      <span>Criterio de Verificación:</span>
+                                    </div>
+                                    <p className="text-[10.5px] leading-relaxed">{message.planAction.verificationCriteria}</p>
+                                  </div>
+                                )}
+
                                 {message.planAction.sql && (
-                                  <div className="mt-2.5 rounded-lg bg-slate-900 p-3 text-[11px] text-emerald-400 font-mono overflow-x-auto leading-relaxed border border-slate-700">
-                                    <code>{message.planAction.sql}</code>
+                                  <div className="mt-2.5">
+                                    <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                      Sentencia SQL a Ejecutar:
+                                    </div>
+                                    <CodeBlock code={message.planAction.sql} language="sql" />
                                   </div>
                                 )}
 
@@ -910,14 +1002,14 @@ export function AgentWorkspacePage() {
                                   {message.planAction.status === 'PROPOSED' ? (
                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                       <span className="text-[10.5px] text-slate-500 italic">
-                                        Listo para ejecutar en: <strong>{activeSession?.environmentName}</strong>
+                                        Listo para aprobar y ejecutar en: <strong>{activeSession?.environmentName}</strong>
                                       </span>
                                       <div className="flex items-center gap-2">
                                         <button
                                           type="button"
                                           onClick={() => void handleExecutePlan(message.id, 'REJECT')}
                                           disabled={executingPlanMessageId === message.id}
-                                          className="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                                          className="rounded-lg border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                                         >
                                           Descartar
                                         </button>
@@ -925,17 +1017,17 @@ export function AgentWorkspacePage() {
                                           type="button"
                                           onClick={() => void handleExecutePlan(message.id, 'APPROVE')}
                                           disabled={executingPlanMessageId === message.id}
-                                          className="inline-flex items-center gap-1.5 rounded-lg bg-[#06a1b9] hover:bg-[#00838f] text-white px-3.5 py-1 text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50"
+                                          className="inline-flex items-center gap-1.5 rounded-lg bg-[#06a1b9] hover:bg-[#00838f] text-white px-4 py-1.5 text-xs font-bold shadow-md hover:shadow-lg transition cursor-pointer disabled:opacity-50"
                                         >
                                           {executingPlanMessageId === message.id ? (
                                             <>
                                               <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                                              <span>Ejecutando en entorno...</span>
+                                              <span>Construyendo en entorno...</span>
                                             </>
                                           ) : (
                                             <>
                                               <PlayIcon width={12} height={12} />
-                                              <span>⚡ Ejecutar Plan (Build)</span>
+                                              <span>⚡ Build (Aprobar y Ejecutar)</span>
                                             </>
                                           )}
                                         </button>
@@ -945,12 +1037,12 @@ export function AgentWorkspacePage() {
                                     <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700 p-2 text-[11px] text-emerald-800 dark:text-emerald-200">
                                       <div className="flex items-center gap-1.5 font-bold mb-0.5">
                                         <CheckIcon width={13} height={13} />
-                                        <span>Plan Ejecutado con Éxito (Build)</span>
+                                        <span>Build Ejecutado con Éxito</span>
                                       </div>
                                       <p className="text-[10.5px] opacity-90">{message.executionResult?.message}</p>
                                       {message.executionResult?.backupPath && (
                                         <p className="text-[10px] text-emerald-700 dark:text-emerald-300 font-mono mt-1">
-                                          Respaldo seguro: {message.executionResult.backupPath}
+                                          Respaldo seguro creado: {message.executionResult.backupPath}
                                         </p>
                                       )}
                                     </div>
@@ -1025,13 +1117,14 @@ export function AgentWorkspacePage() {
                 <button
                   type="button"
                   onClick={() => setActiveMode('CHAT')}
-                  className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition cursor-pointer ${
+                  className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition cursor-pointer flex items-center gap-1 ${
                     activeMode === 'CHAT'
                       ? 'bg-[#002b49] text-white dark:bg-[#003d66] shadow-xs'
                       : 'bg-slate-200/70 text-slate-600 dark:bg-slate-800 dark:text-slate-400 hover:bg-slate-300/60'
                   }`}
+                  title="Diálogo técnico libre sobre código, arquitectura y base de datos (como un chat de Antigravity)"
                 >
-                  💬 Consulta
+                  💬 Consulta Libre
                 </button>
                 <button
                   type="button"
@@ -1041,19 +1134,20 @@ export function AgentWorkspacePage() {
                       ? 'bg-[#06a1b9] text-white shadow-xs'
                       : 'bg-slate-200/70 text-slate-600 dark:bg-slate-800 dark:text-slate-400 hover:bg-slate-300/60'
                   }`}
+                  title="Formula un Artifact de Plan estructurado con pasos y botón de Build para aprobar y ejecutar"
                 >
                   <PlayIcon width={11} height={11} />
-                  📝 Plan & Build
+                  📝 Plan & Build (/plan)
                 </button>
               </div>
 
               {activeMode === 'PLAN' ? (
                 <span className="text-[10.5px] text-[#06a1b9] dark:text-[#80deea] font-medium flex items-center gap-1">
-                  ⚡ La IA estructurará un plan con botón de ejecución directa (Build) en {activeSession?.environmentName}.
+                  ⚡ Modo /plan activo: La IA estructurará un Artifact de Plan con pasos y botón Build para {activeSession?.environmentName}.
                 </span>
               ) : (
                 <span className="text-[10.5px] text-slate-400">
-                  Modo conversación libre y análisis técnico sin restricciones.
+                  💬 Modo Consulta activo: Diálogo libre como un chat de Antigravity (sin forzar planes de build).
                 </span>
               )}
             </div>
@@ -1084,7 +1178,11 @@ export function AgentWorkspacePage() {
               <textarea
                 ref={textareaRef}
                 rows={2}
-                placeholder="Pregunta al agente técnico... (ej. '¿Qué consulta hago para ver inconsistencias en sis_maes?' o pega una captura con Ctrl+V)"
+                placeholder={
+                  activeMode === 'PLAN'
+                    ? "Describe el requerimiento o corrección para formular el Plan de Implementación (/plan)... (ej. 'Formula un plan para corregir facturas en sis_maes')"
+                    : "Consulta técnica libre al agente... (ej. '¿Cómo funciona la validación de admisiones en sis_paci?' o pega una captura con Ctrl+V)"
+                }
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={handleKeyDown}

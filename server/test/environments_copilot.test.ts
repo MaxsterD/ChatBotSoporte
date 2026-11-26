@@ -13,7 +13,7 @@ import {
   testSourceConnection,
 } from '../src/environments/service';
 import { executeProposedAction, getOrInitCopilot, sendCopilotMessage } from '../src/copilot/service';
-import { listClients, updateClientEnvironment } from '../src/chats/service';
+import { listClients, updateClientEnvironment, deleteChat } from '../src/chats/service';
 import {
   getLocalEnvironmentConfig,
   updateLocalEnvironmentConfig,
@@ -29,6 +29,7 @@ import {
   executeStaffPlanAction,
   updateStaffPlanAction,
 } from '../src/staffAgent/service';
+import { deleteAgyConversation } from '../src/agent/conversationManager';
 import { env } from '../src/env';
 
 test('Gestión de Entornos de Cliente y Copiloto IA', async (t) => {
@@ -313,6 +314,9 @@ test('Gestión de Entornos de Cliente y Copiloto IA', async (t) => {
       });
       assert.ok(planTurnResult.agentMessage);
       assert.ok(planTurnResult.agentMessage.planAction);
+      assert.ok(Array.isArray(planTurnResult.agentMessage.planAction.steps));
+      assert.ok(planTurnResult.agentMessage.planAction.steps.length > 0);
+      assert.ok(planTurnResult.agentMessage.planAction.verificationCriteria);
 
       // Probar ejecución de plan (Build) sobre archivo del entorno con respaldo automático
       const planMsgId = planTurnResult.agentMessage.id;
@@ -324,6 +328,8 @@ test('Gestión de Entornos de Cliente y Copiloto IA', async (t) => {
             title: 'Ajuste de glosas en CtrlFacturacion',
             description: 'Modificación automática mediante Plan & Build',
             status: 'PROPOSED',
+            steps: ['Inspeccionar CtrlFacturacion.php', 'Aplicar fix de glosas', 'Verificar respaldo .bak'],
+            verificationCriteria: 'El archivo debe contener el fix v1.2',
             filePath: 'CtrlFacturacion.php',
             targetContent: 'v1.1 con fix de glosas',
             diff: 'v1.2 plan build exitoso',
@@ -353,17 +359,29 @@ test('Gestión de Entornos de Cliente y Copiloto IA', async (t) => {
       assert.ok(restructuredTurn.agentMessage.planAction);
       assert.equal(restructuredTurn.agentMessage.planAction.status, 'PROPOSED');
       assert.ok(restructuredTurn.agentMessage.content.toLowerCase().includes('reestructurado'));
+      assert.ok(Array.isArray(restructuredTurn.agentMessage.planAction.steps));
 
-      // 2d. Probar edición manual directa de los parámetros del plan (título y SQL)
+      // 2d. Probar edición manual directa de los parámetros del plan (título, SQL, steps, verificationCriteria)
       const manualEdit = await updateStaffPlanAction({
         sessionId: session.id,
         messageId: restructuredTurn.agentMessage.id,
         consultantId: consultant.id,
         title: 'Plan Ajustado Manualmente por Consultor',
         sql: 'UPDATE sis_deta SET estado = "CORREGIDO" WHERE estudio = 99999;',
+        steps: ['1. Validar registros en sis_deta con estado P', '2. Ejecutar UPDATE', '3. Confirmar estado CORREGIDO'],
+        verificationCriteria: 'Ningún registro con estudio 99999 debe quedar en estado P',
       });
       assert.equal(manualEdit.planAction.title, 'Plan Ajustado Manualmente por Consultor');
       assert.equal(manualEdit.planAction.sql, 'UPDATE sis_deta SET estado = "CORREGIDO" WHERE estudio = 99999;');
+      assert.deepEqual(manualEdit.planAction.steps, [
+        '1. Validar registros en sis_deta con estado P',
+        '2. Ejecutar UPDATE',
+        '3. Confirmar estado CORREGIDO',
+      ]);
+      assert.equal(
+        manualEdit.planAction.verificationCriteria,
+        'Ningún registro con estudio 99999 debe quedar en estado P',
+      );
 
       // 3. Cambiar de entorno a Local Base (null)
       const switched = await updateStaffSessionEnvironment(session.id, null, consultant.id);
@@ -374,11 +392,49 @@ test('Gestión de Entornos de Cliente y Copiloto IA', async (t) => {
       const detail = await getStaffSession(session.id, consultant.id);
       assert.equal(detail.messages.length, 6); // 3 consultor + 3 agente
 
-      // 5. Eliminar sesión
+      // 4b. Asociar un agyConversationId para verificar que deleteStaffSession sincroniza borrado
+      await prisma.staffAgentSession.update({
+        where: { id: session.id },
+        data: { agyConversationId: 'test-staff-session-agy-uuid-9999' },
+      });
+
+      // 5. Eliminar sesión (debe limpiar conversación en agy)
       const del = await deleteStaffSession(session.id, consultant.id);
       assert.equal(del.ok, true);
     } finally {
       await prisma.user.delete({ where: { id: consultant.id } }).catch(() => {});
     }
+  });
+
+  await t.test('9. Eliminación de chat y sincronización con agy CLI (deleteChat)', async () => {
+    const dummyClient = await prisma.user.create({
+      data: {
+        email: `cliente_del_${Date.now()}@demo.com`,
+        name: 'Cliente Para Borrado',
+        passwordHash: 'dummy',
+        role: 'CLIENTE',
+      },
+    });
+
+    const chatToDel = await prisma.chat.create({
+      data: {
+        userId: dummyClient.id,
+        title: 'Chat temporal a eliminar',
+        status: 'WAITING',
+        agyConversationId: 'test-chat-agy-uuid-8888',
+      },
+    });
+
+    // Probar eliminación de chat con usuario propietario
+    const delResult = await deleteChat(chatToDel.id, dummyClient.id, 'CLIENTE');
+    assert.equal(delResult.ok, true);
+
+    const exists = await prisma.chat.findUnique({ where: { id: chatToDel.id } });
+    assert.equal(exists, null);
+
+    // Probar deleteAgyConversation directamente con id no existente para comprobar idempotencia
+    await deleteAgyConversation('fake-conv-id-nonexistent');
+
+    await prisma.user.delete({ where: { id: dummyClient.id } }).catch(() => {});
   });
 });

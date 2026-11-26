@@ -181,6 +181,8 @@ export interface StaffMessage {
     title?: string;
     description: string;
     status: 'PROPOSED' | 'APPROVED' | 'REJECTED' | 'EXECUTED';
+    steps?: string[];
+    verificationCriteria?: string;
     sql?: string;
     filePath?: string;
     targetContent?: string;

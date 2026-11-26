@@ -8,6 +8,7 @@ import {
   addConsultantNote,
   closeChat,
   createConsultant,
+  deleteChat,
   getChatAnalysis,
   getConsultantChat,
   getQueue,
@@ -177,5 +178,12 @@ export async function consultantRoutes(app: FastifyInstance) {
     );
 
     return { user: await updateClientEnvironment(id, body.environmentId) };
+  });
+
+  // Eliminar un chat de cliente y sincronizar agy CLI (Exclusivo Staff)
+  app.delete('/consultant/chats/:id', async (request) => {
+    const user = requireStaff(request);
+    const { id } = parse(z.object({ id: z.string().uuid() }), request.params);
+    return deleteChat(id, user.id, user.role);
   });
 }

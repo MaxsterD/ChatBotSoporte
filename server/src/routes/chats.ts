@@ -5,6 +5,7 @@ import { requireUser } from '../auth/routes';
 import {
   closeChat,
   createChat,
+  deleteChat,
   getClientChat,
   listClientChats,
   requestHuman,
@@ -69,5 +70,11 @@ export async function chatRoutes(app: FastifyInstance) {
     const { id } = parse(z.object({ id: z.string().uuid() }), request.params);
     await closeChat(id, user);
     return { ok: true };
+  });
+
+  app.delete('/chats/:id', async (request) => {
+    const user = requireUser(request);
+    const { id } = parse(z.object({ id: z.string().uuid() }), request.params);
+    return deleteChat(id, user.id, user.role);
   });
 }

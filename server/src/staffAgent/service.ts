@@ -9,6 +9,7 @@ import { getRawLocalEnvironmentConfig } from '../config/localEnvironment';
 import { decryptCredential } from '../lib/crypto';
 import { sismaDb } from '../agent/db/sismaDb';
 import { resolveAgyBinary } from '../agent/bridge';
+import { deleteAgyConversation } from '../agent/conversationManager';
 import { getEnvironmentDbPool } from '../environments/service';
 
 export interface ProposedPlanAction {
@@ -16,6 +17,8 @@ export interface ProposedPlanAction {
   title?: string;
   description: string;
   status: 'PROPOSED' | 'APPROVED' | 'REJECTED' | 'EXECUTED';
+  steps?: string[];
+  verificationCriteria?: string;
   sql?: string;
   filePath?: string;
   targetContent?: string;
@@ -180,6 +183,15 @@ export async function deleteStaffSession(sessionId: string, consultantId: string
   if (!session) throw notFound('Sesión no encontrada');
   if (session.consultantId !== consultantId && role !== 'ADMIN') throw forbidden('Acceso denegado');
 
+  // Limpieza sincronizada en Antigravity CLI si la sesión contenía conversación agy
+  if (session.agyConversationId) {
+    try {
+      await deleteAgyConversation(session.agyConversationId);
+    } catch (err) {
+      console.warn(`[staff-agent] Aviso al limpiar conversación agy ${session.agyConversationId}:`, err);
+    }
+  }
+
   await prisma.staffAgentSession.delete({ where: { id: sessionId } });
   return { ok: true };
 }
@@ -307,7 +319,12 @@ WHERE parametro LIKE '%ERROR%' OR modulo LIKE '%SISTEMA%';
 /**
  * Ejecuta un turno del agente técnico sin restricciones usando Antigravity CLI.
  */
-async function runStaffAgy(prompt: string, extraDirs: string[], conversationId?: string): Promise<string> {
+async function runStaffAgy(
+  prompt: string,
+  extraDirs: string[],
+  conversationId?: string,
+  mode: 'CHAT' | 'PLAN' = 'CHAT',
+): Promise<{ text: string; conversationId?: string }> {
   const binary = resolveAgyBinary();
   const uploadsDir = path.resolve(serverRoot, 'uploads');
   const allDirs = Array.from(new Set([...extraDirs, uploadsDir])).filter(Boolean);
@@ -325,6 +342,10 @@ async function runStaffAgy(prompt: string, extraDirs: string[], conversationId?:
     env.AGY_MODEL,
   ];
 
+  if (mode === 'PLAN') {
+    args.push('--mode', 'plan');
+  }
+
   if (conversationId) {
     args.push('--conversation', conversationId);
   }
@@ -333,7 +354,7 @@ async function runStaffAgy(prompt: string, extraDirs: string[], conversationId?:
     args.push('--add-dir', dir);
   }
 
-  return new Promise<string>((resolve, reject) => {
+  return new Promise<{ text: string; conversationId?: string }>((resolve, reject) => {
     let child: ChildProcess;
     try {
       child = spawn(binary, args, {
@@ -347,6 +368,7 @@ async function runStaffAgy(prompt: string, extraDirs: string[], conversationId?:
     }
 
     let resultResponse = '';
+    let detectedConversationId = conversationId;
     let buffer = '';
     let stderr = '';
 
@@ -368,6 +390,12 @@ async function runStaffAgy(prompt: string, extraDirs: string[], conversationId?:
         try {
           const event = JSON.parse(line);
           if (event && typeof event === 'object') {
+            if (typeof event.conversation_id === 'string' && event.conversation_id.trim()) {
+              detectedConversationId = event.conversation_id.trim();
+            } else if (typeof event.conversationId === 'string' && event.conversationId.trim()) {
+              detectedConversationId = event.conversationId.trim();
+            }
+
             const type = event.type;
             if (type === 'result') {
               const resObj = event.result && typeof event.result === 'object' ? (event.result as Record<string, unknown>) : {};
@@ -397,13 +425,15 @@ async function runStaffAgy(prompt: string, extraDirs: string[], conversationId?:
     child.on('close', (code) => {
       clearTimeout(timer);
       if (resultResponse.trim()) {
-        resolve(resultResponse.trim());
+        resolve({ text: resultResponse.trim(), conversationId: detectedConversationId });
       } else {
         // Si no capturó evento result pero terminó bien o con buffer
         if (buffer.trim()) {
           try {
             const last = JSON.parse(buffer.trim());
-            if (last.response) return resolve(last.response);
+            if (last.response) {
+              return resolve({ text: last.response, conversationId: detectedConversationId });
+            }
           } catch {}
         }
         reject(new Error(`El agente no devolvió texto utilizable (código ${code}). ${stderr.slice(-300)}`));
@@ -509,29 +539,48 @@ El consultor adjuntó una imagen / captura de pantalla técnica. Utiliza la herr
   // 5. Directiva de Plan & Build
   const planDirective = isPlanMode
     ? `
-[MODO PLAN & BUILD Y REFINAMIENTO DE PLANES ACTIVADO]
-El consultor solicita estructurar o REESTRUCTURAR un PLAN TÉCNICO FORMAL para su posterior ejecución (Build).
+[MODO PLAN & BUILD Y REFINAMIENTO DE PLANES ACTIVADO (/plan)]
+El consultor solicita estructurar o REESTRUCTURAR un PLAN TÉCNICO FORMAL para su posterior aprobación y ejecución (Build).
 
-REGLAS DE REESTRUCTURACIÓN Y MODIFICACIÓN:
-1. Si en el historial reciente ya existe una propuesta de plan y el consultor te solicita cambios, ajustes o correcciones (ej: "no toques tal tabla sino tal otra", "cambia la condición WHERE", "en vez de eliminar marca como inactivo", "ajusta la query", "modifica el archivo X"):
-   - Toma en cuenta el plan anterior del historial y las nuevas directivas del consultor.
-   - Explica con claridad qué cambios incorporaste respecto a la versión anterior.
+REGLAS DE FORMULACIÓN Y REESTRUCTURACIÓN:
+1. Si en el historial reciente ya existe una propuesta de plan y el consultor te solicita cambios, ajustes o directivas:
+   - Toma en cuenta el plan anterior del historial y las nuevas observaciones del consultor.
+   - Explica con claridad qué cambios y mejoras incorporaste respecto a la versión anterior.
    - Devuelve un NUEVO bloque \`\`\`plan reestructurado con la solución corregida.
-2. Si propones una acción técnica concreta a ejecutar (script SQL correctivo o modificación de archivo en el entorno), incluye al final un bloque JSON cercado con \`\`\`plan:
+2. Todo plan debe incluir:
+   - "title": Título claro y profesional del plan de acción.
+   - "description": Explicación resumida de la estrategia técnica.
+   - "steps": Arreglo de cadenas con los pasos ordenados de ejecución (ej. ["1. Validar registros en sis_deta", "2. Aplicar recálculo de factura", "3. Verificar coherencia de saldos"]).
+   - "verificationCriteria": Criterio específico para comprobar que el cambio quedó aplicado exitosamente.
+   - "type": "SQL" o "FILE" según corresponda.
+   - "sql": Sentencia SQL completa (si es SQL).
+   - "filePath": Ruta relativa del archivo a modificar (si es FILE, ej. CtrlFacturacion.php).
+   - "targetContent": Fragmento exacto a buscar en el archivo.
+   - "replacementContent": Nuevo código a colocar.
+3. Estructura el bloque al final en formato JSON exacto:
 \`\`\`plan
 {
-  "type": "SQL" | "FILE",
-  "title": "Título descriptivo de la acción",
-  "description": "Qué hace este cambio en el entorno",
-  "sql": "Sentencia SQL completa a ejecutar (si es SQL)",
-  "filePath": "Ruta relativa del archivo a modificar (si es FILE, ej. CtrlFacturacion.php)",
-  "targetContent": "Fragmento exacto a buscar en el archivo",
-  "replacementContent": "Nuevo contenido a colocar"
+  "type": "SQL",
+  "title": "Corrección de saldos en facturación sis_maes",
+  "description": "Recalcula y sincroniza el total de la factura con los ítems liquidados en sis_deta.",
+  "steps": [
+    "Comprobar ítems en estado facturado en sis_deta",
+    "Ejecutar recálculo sobre sis_maes para el estudio indicado",
+    "Verificar que el saldo pendiente coincida con el total menos abonos"
+  ],
+  "verificationCriteria": "El campo vlr_factura en sis_maes debe ser igual a la sumatoria de sis_deta.total.",
+  "sql": "UPDATE sis_maes SET vlr_factura = (SELECT ISNULL(SUM(total), 0) FROM sis_deta WHERE estudio = sis_maes.con_estudio) WHERE estado = 'A' AND con_estudio = 12345;"
 }
 \`\`\`
-El sistema leerá este bloque y le presentará al consultor el botón interactivo "⚡ Ejecutar Plan (Build)" para aplicarlo en el entorno o editarlo manualmente.
+El sistema leerá este bloque y le presentará al consultor los controles para modificar el plan y el botón interactivo "⚡ Build (Aprobar y Ejecutar)" para aplicarlo en el entorno con respaldo de seguridad.
 `
-    : '';
+    : `
+[MODO CONSULTA LIBRE ACTIVADO]
+Estás en modo de diálogo técnico libre (equivalente al chat interactivo de Antigravity):
+- Responde de forma analítica, explicativa y didáctica sobre arquitectura, flujo de datos, procedimientos y lógica de SismaSalud.
+- Puedes sugerir consultas SELECT de diagnóstico o fragmentos de código formativos con bloques de código estándar (\`\`\`sql, \`\`\`php).
+- NO generes un bloque \`\`\`plan a menos que el usuario active explícitamente el modo Plan o solicite una acción de Build.
+`;
 
   // 6. Construir Prompt Técnico Senior
   const fullPrompt = `
@@ -560,14 +609,26 @@ ${content || '(El consultor adjuntó una imagen para revisión técnica)'}
     agentResponseText = generateTechnicalMockResponse(content, environmentName);
     if (isPlanMode) {
       if (/modifica|ajusta|reestructura|cambia|en vez de/i.test(content)) {
-        agentResponseText += `\n\n### Plan de Acción Reestructurado (Build)\n\`\`\`plan\n{\n  "type": "SQL",\n  "title": "Plan Reestructurado: Actualización de ítems en sis_deta",\n  "description": "Ajuste aplicado según las indicaciones del consultor: filtra por estado='P' y recalcula totales.",\n  "sql": "UPDATE sis_deta SET total = cantidad * 15000 WHERE estudio = 12345 AND estado = 'P';"\n}\n\`\`\``;
+        agentResponseText += `\n\n### Plan de Acción Reestructurado (Build)\n\`\`\`plan\n{\n  "type": "SQL",\n  "title": "Plan Reestructurado: Actualización de ítems en sis_deta",\n  "description": "Ajuste aplicado según las indicaciones del consultor: filtra por estado='P' y recalcula totales.",\n  "steps": [\n    "Identificar registros en sis_deta con estado 'P'",\n    "Cruzar con contratos vigentes para obtener manual SOAT",\n    "Actualizar totales y verificar integridad referencial"\n  ],\n  "verificationCriteria": "Verificar en sis_deta que ningún registro con estado 'P' mantenga valor en cero.",\n  "sql": "UPDATE sis_deta SET total = cantidad * (SELECT TOP 1 manual_soat FROM contratos WHERE codigo = sis_deta.cod_servicio) WHERE estudio = 12345 AND estado = 'P';"\n}\n\`\`\``;
       } else {
-        agentResponseText += `\n\n### Plan de Acción Propuesto (Build)\n\`\`\`plan\n{\n  "type": "SQL",\n  "title": "Corrección de inconsistencia en sis_maes",\n  "description": "Actualiza el total de la factura para que coincida exactamente con los ítems liquidados en sis_deta.",\n  "sql": "UPDATE sis_maes SET vlr_factura = (SELECT ISNULL(SUM(total), 0) FROM sis_deta WHERE estudio = sis_maes.con_estudio) WHERE estado = 'A' AND con_estudio = 12345;"\n}\n\`\`\``;
+        agentResponseText += `\n\n### Plan de Acción Propuesto (Build)\n\`\`\`plan\n{\n  "type": "SQL",\n  "title": "Corrección de inconsistencia en sis_maes",\n  "description": "Actualiza el total de la factura para que coincida exactamente con los ítems liquidados en sis_deta.",\n  "steps": [\n    "Calcular sumatoria real de servicios facturados en sis_deta",\n    "Actualizar encabezado en sis_maes con monto recalculado",\n    "Confirmar balance contable con copagos y descuentos aplicados"\n  ],\n  "verificationCriteria": "El campo vlr_factura en sis_maes debe coincidir con la sumatoria de sis_deta.total para el estudio 12345.",\n  "sql": "UPDATE sis_maes SET vlr_factura = (SELECT ISNULL(SUM(total), 0) FROM sis_deta WHERE estudio = sis_maes.con_estudio) WHERE estado = 'A' AND con_estudio = 12345;"\n}\n\`\`\``;
       }
     }
   } else {
     try {
-      agentResponseText = await runStaffAgy(fullPrompt, extraDirs, session.agyConversationId || undefined);
+      const agyResult = await runStaffAgy(
+        fullPrompt,
+        extraDirs,
+        session.agyConversationId || undefined,
+        isPlanMode ? 'PLAN' : 'CHAT',
+      );
+      agentResponseText = agyResult.text;
+      if (agyResult.conversationId && agyResult.conversationId !== session.agyConversationId) {
+        await prisma.staffAgentSession.update({
+          where: { id: sessionId },
+          data: { agyConversationId: agyResult.conversationId },
+        });
+      }
     } catch (agyErr) {
       console.warn('Fallo en llamada a agy CLI para consultor, usando fallback técnico:', agyErr);
       agentResponseText = generateTechnicalMockResponse(content, environmentName);
@@ -585,6 +646,8 @@ ${content || '(El consultor adjuntó una imagen para revisión técnica)'}
         title: parsed.title || 'Plan de Acción Técnico',
         description: parsed.description || 'Acción ejecutable en el entorno',
         status: 'PROPOSED',
+        steps: Array.isArray(parsed.steps) ? parsed.steps.map(String) : undefined,
+        verificationCriteria: typeof parsed.verificationCriteria === 'string' ? parsed.verificationCriteria : undefined,
         sql: parsed.sql,
         filePath: parsed.filePath,
         targetContent: parsed.targetContent,
@@ -601,6 +664,12 @@ ${content || '(El consultor adjuntó una imagen para revisión técnica)'}
         title: 'Script SQL Correctivo Propuesto',
         description: 'Sentencia de actualización en la base de datos del entorno seleccionado',
         status: 'PROPOSED',
+        steps: [
+          'Revisar las filas que cumplen la condición de actualización',
+          'Ejecutar script SQL correctivo',
+          'Validar filas afectadas',
+        ],
+        verificationCriteria: 'Validar que las filas afectadas cumplan la nueva condición',
         sql: sqlMatch[1].trim(),
       };
     }
@@ -817,6 +886,8 @@ export async function updateStaffPlanAction(params: {
   role?: string;
   title?: string;
   description?: string;
+  steps?: string[];
+  verificationCriteria?: string;
   sql?: string;
   filePath?: string;
   replacementContent?: string;
@@ -841,6 +912,9 @@ export async function updateStaffPlanAction(params: {
     ...currentPlan,
     title: updates.title !== undefined ? updates.title : currentPlan.title,
     description: updates.description !== undefined ? updates.description : currentPlan.description,
+    steps: updates.steps !== undefined ? updates.steps : currentPlan.steps,
+    verificationCriteria:
+      updates.verificationCriteria !== undefined ? updates.verificationCriteria : currentPlan.verificationCriteria,
     sql: updates.sql !== undefined ? updates.sql : currentPlan.sql,
     filePath: updates.filePath !== undefined ? updates.filePath : currentPlan.filePath,
     replacementContent:
