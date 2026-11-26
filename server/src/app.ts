@@ -5,7 +5,7 @@ import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import path from 'node:path';
 import fs from 'node:fs';
-import { env, serverRoot } from './env';
+import { env, serverRoot, repoRoot } from './env';
 import { ApiError } from './lib/errors';
 import { authRoutes } from './auth/routes';
 import { chatRoutes } from './routes/chats';
