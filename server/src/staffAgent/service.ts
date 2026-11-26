@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import sql from 'mssql';
@@ -197,36 +198,70 @@ export async function deleteStaffSession(sessionId: string, consultantId: string
 }
 
 /**
- * Genera una respuesta técnica realista simulada cuando AGENT_MODE=mock o como fallback.
+ * Llama a la API REST de Google Gemini directamente (ideal cuando agy CLI corre en entornos headless como Railway sin OAuth de navegador).
+ */
+async function callGeminiDirect(prompt: string, apiKey: string): Promise<string> {
+  const model = 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 2048,
+      },
+    }),
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Gemini API HTTP ${res.status}: ${errorText.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as any;
+  const candidate = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!candidate || typeof candidate !== 'string') throw new Error('Respuesta vacía de Gemini API');
+  return candidate;
+}
+
+/**
+ * Genera una respuesta conversacional natural y técnica simulada cuando no hay conexión externa o en fallback.
  */
 function generateTechnicalMockResponse(userMessage: string, environmentName: string): string {
-  const lower = userMessage.toLowerCase().trim();
+  const trimmed = userMessage.trim();
+  const lower = trimmed.toLowerCase();
 
-  // 1. Saludos y mensajes de cortesía comunes (responder como chat natural)
-  const isGreeting = /^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey|saludos|qu[eé] tal|qu[eé] hubo)\b/i.test(lower);
-  if (isGreeting && lower.split(/\s+/).length <= 6) {
-    return `¡Hola! ¿En qué puedo colaborarte hoy?
-
-Estoy listo como tu copiloto técnico para **${environmentName}**. En este modo de consulta libre podemos conversar directamente sobre:
-- Estructura y consultas de la base de datos de SismaSalud (\`sis_maes\`, \`sis_deta\`, \`contratos\`, etc.).
-- Controladores y lógica PHP de facturación, citas, glosas o historias clínicas.
-- Diagnóstico de incidencias o dudas sobre el sistema.
-
-Cuéntame qué caso o módulo deseas revisar.`;
+  // 1. Saludos comunes
+  if (/^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey|saludos|qu[eé] tal|qu[eé] hubo)[!.]*$/i.test(lower)) {
+    return `¡Hola! ¿En qué puedo ayudarte hoy con el proyecto?`;
   }
 
-  // 2. Preguntas generales sobre capacidades o rol
-  if (/qu[eé] puedes hacer|c[oó]mo funciona|qui[eé]n eres|ayuda/i.test(lower) && lower.split(/\s+/).length <= 8) {
-    return `Soy el **Copiloto Técnico de Soporte SismaSalud** (en modo chat interactivo).
-
-Podemos hablar libremente como en una terminal de Antigravity CLI:
-1. **Consultas Técnicas**: Hazme cualquier pregunta sobre tablas, flujos de facturación, tarifas SOAT/ISS o código PHP.
-2. **Diagnóstico**: Si tienes un número de factura, mensaje de error o captura de pantalla, compártemela para analizarla.
-3. **Plan & Build (/plan)**: Si decides aplicar un cambio en la base de datos o en los archivos, activa el modo Plan para estructurarlo, ajustarlo y ejecutarlo con respaldo.
-
-¿Por dónde empezamos?`;
+  // 2. Nombre e identidad
+  if (/(c[oó]mo te llamas|qui[eé]n eres|cu[aá]l es tu nombre|tu nombre)\b/i.test(lower)) {
+    return `Soy Antigravity, tu copiloto técnico para SismaSalud. ¿En qué te puedo dar una mano hoy?`;
   }
 
+  // 3. Estado / ¿Cómo estás?
+  if (/(c[oó]mo est[aá]s|qu[eé] tal todo|c[oó]mo va|todo bien)\b/i.test(lower)) {
+    return `¡Todo muy bien por acá! Listo para revisar consultas SQL, código o resolver cualquier duda en ${environmentName}. ¿Qué tienes en mente?`;
+  }
+
+  // 4. Capacidades y ayuda
+  if (/(qu[eé] puedes hacer|qu[eé] haces|c[oó]mo funciona|para qu[eé] sirves|ayuda)\b/i.test(lower)) {
+    return `Puedo ayudarte a explorar y diagnosticar la base de datos de SismaSalud (como sis_maes, sis_deta o contratos), revisar archivos de código PHP, o si necesitas hacer modificaciones, podemos formular planes de acción con /plan. ¿Hay algún caso puntual que quieras revisar?`;
+  }
+
+  // 5. Agradecimientos
+  if (/^(gracias|muchas gracias|listo gracias|vale gracias|perfecto gracias)[!.]*$/i.test(lower)) {
+    return `¡Con gusto! Aquí sigo por si necesitas mirar cualquier otra cosa.`;
+  }
+
+  // 6. Despedidas
+  if (/^(chao|adi[oó]s|hasta luego|nos vemos|bye)[!.]*$/i.test(lower)) {
+    return `¡Hasta luego! Quedo a tu disposición cuando vuelvas a necesitar soporte en el sistema.`;
+  }
+
+  // 7. Modificaciones y refinamiento de plan
   if (lower.includes('modifica') || lower.includes('cambia') || lower.includes('ajusta') || lower.includes('reestructura') || lower.includes('en vez de')) {
     return `### Plan Reestructurado según tus Indicaciones (${environmentName})
 
@@ -251,81 +286,57 @@ WHERE estudio = 12345 AND estado = 'P';
 Puedes revisar los parámetros en la tarjeta interactiva inferior y proceder a ejecutar el plan reestructurado cuando consideres oportuno.`;
   }
 
+  // 8. Tablas comunes de SismaSalud
+  if (lower.includes('sis_maes')) {
+    return `\`sis_maes\` es la tabla principal de admisiones y facturación en SismaSalud. Contiene el encabezado de cada estudio (\`con_estudio\`, \`nro_factura\`, \`vlr_factura\`, \`estado\`, etc.) y se relaciona con \`sis_paci\` a través de \`autoid\`. ¿Quieres que revisemos alguna consulta sobre esta tabla?`;
+  }
+  if (lower.includes('sis_deta')) {
+    return `\`sis_deta\` guarda el detalle de los servicios, medicamentos e insumos facturados (\`estudio\`, \`cod_servicio\`, \`descripcion\`, \`cantidad\`, \`total\`, etc.). Se vincula con \`sis_maes\` mediante \`estudio\`. ¿Deseas verificar inconsistencias en la liquidación?`;
+  }
+  if (lower.includes('contratos')) {
+    return `La tabla \`contratos\` parametriza los manuales tarifarios (SOAT, ISS), porcentajes y condiciones negociadas con cada aseguradora o EPS para la facturación automática.`;
+  }
+  if (lower.includes('sis_paci')) {
+    return `\`sis_paci\` es el maestro de pacientes (\`autoid\`, \`tipo_id\`, \`num_id\`, nombres, apellidos, etc.) y conecta con historias clínicas, citas y admisiones.`;
+  }
+
+  // 9. Facturación y glosas
   if (lower.includes('factur') || lower.includes('glosa') || lower.includes('resolucion')) {
     return `### Análisis Técnico de Facturación (${environmentName})
 
-He analizado la estructura y lógica de facturación para este caso:
+Revisando el módulo de facturación:
 
-#### 1. Causa Raíz Probable
-El error suele producirse cuando el registro en la tabla \`sis_maes\` (encabezado de factura) no coincide en estado (\`estado = 'A'\` abierta / \`estado = 'C'\` cerrada) o cuando existe una inconsistencia de valores entre los ítems facturados en \`sis_deta\` y el total acumulado en el contrato (\`contratos\`).
+#### 1. Causa Habitual
+Suele ocurrir por diferencias entre el total registrado en el encabezado (\`sis_maes.vlr_factura\`) y la sumatoria de los ítems en \`sis_deta\`, o por discrepancias en las tarifas asociadas en \`contratos\`.
 
-#### 2. Consultas SQL de Diagnóstico
-Puedes ejecutar estas consultas en la base de datos para verificar la integridad del registro:
-
+#### 2. Consulta de Diagnóstico
 \`\`\`sql
--- 1. Verificar estado de la factura y paciente asociado
-SELECT 
-    m.con_estudio, m.nro_factura, m.estado, m.cod_clie, m.vlr_factura, m.vlr_coopago, m.vlr_descto,
-    p.primer_nom + ' ' + p.primer_ape AS paciente, p.num_id
+SELECT m.con_estudio, m.nro_factura, m.estado, m.vlr_factura,
+       (SELECT ISNULL(SUM(d.total), 0) FROM sis_deta d WITH(NOLOCK) WHERE d.estudio = m.con_estudio) AS total_deta
 FROM sis_maes m WITH(NOLOCK)
-INNER JOIN sis_paci p WITH(NOLOCK) ON p.autoid = m.autoid
-WHERE m.nro_factura = '0' OR m.con_estudio = 12345;
-
--- 2. Inspeccionar ítems con inconsistencia de valores o tarifas
-SELECT 
-    d.id, d.cod_servicio, d.descripcion, d.cantidad, d.total, d.tipo_estudio
-FROM sis_deta d WITH(NOLOCK)
-WHERE d.estudio = 12345
-ORDER BY d.id ASC;
+WHERE m.con_estudio = 12345;
 \`\`\`
 
-#### 3. Validación en Código Fuente PHP
-En el controlador \`CtrlFacturacion.php\` (o \`ModelFacturacion.php\`), revisa la función \`validarCierreFactura()\`:
-\`\`\`php
-// Verificación de glosas pendientes y copagos
-if ($totalCalculado != $vlr_factura_maes) {
-    // Si hay discrepancia de decimales en tarifas SOAT / ISS:
-    $vlr_factura_maes = round($totalCalculado, 2);
-}
-\`\`\`
-
-#### 4. Solución Propuesta
-1. Ejecuta el diagnóstico SQL para confirmar si los totales de \`sis_deta\` cuadran con \`vlr_factura\` en \`sis_maes\`.
-2. Si los valores difieren por redondeo, actualiza el encabezado con el monto exacto o recalcula las liquidaciones desde el módulo de Facturación.`;
+Si necesitas aplicar una corrección sobre la base de datos o en \`CtrlFacturacion.php\`, puedes activar el modo **Plan & Build** (/plan).`;
   }
 
+  // 10. Agenda y citas
   if (lower.includes('cita') || lower.includes('agenda') || lower.includes('medico')) {
-    return `### Diagnóstico Técnico de Agenda y Citas (${environmentName})
+    return `### Diagnóstico de Agenda Médica (${environmentName})
 
-#### 1. Diagnóstico del Sistema
-Revisando la lógica de asignación de citas en \`citas\` y disponibilidad médica en \`horarios_medicos\`:
+En SismaSalud, las citas se gestionan cruzando la tabla \`citas\` con los horarios programados en \`horarios_medicos\`:
 
 \`\`\`sql
--- Verificar citas programadas y bloqueos de agenda
-SELECT 
-    c.id, c.fecha, c.hora, c.estado, c.cod_medi, m.nombre AS medico, c.autoid
+SELECT c.id, c.fecha, c.hora, c.estado, m.nombre AS medico
 FROM citas c WITH(NOLOCK)
 LEFT JOIN sis_medi m WITH(NOLOCK) ON m.codigo = c.cod_medi
-WHERE c.fecha >= CAST(GETDATE() AS DATE)
-ORDER BY c.fecha, c.hora;
+WHERE c.fecha >= CAST(GETDATE() AS DATE);
 \`\`\`
-
-#### 2. Código Fuente Relevante
-Revisa \`CtrlAgendaMedica.php\` en la ruta de fuentes:
-- Validar que la variable de sesión \`$_SESSION['codigo_medico']\` tenga permisos en \`sis_nivelacceso\`.
-- Comprobar que no exista concurrencia de doble agendamiento en el mismo intervalo de minutos.`;
+Revisa también los permisos en \`CtrlAgendaMedica.php\` si el problema es de visualización o concurrencia.`;
   }
 
-  return `### Copiloto Técnico (${environmentName})
-
-He recibido tu mensaje:
-> "${userMessage}"
-
-Para asistirte mejor sobre este punto en **${environmentName}**:
-- Si deseas diagnosticar un caso o error puntual, indícame el número de estudio, módulo afectado o consulta SQL que estés revisando.
-- Si prefieres que analicemos un archivo de código PHP o procedimiento de SismaSalud, compárteme su nombre o función.
-- También puedes adjuntar una captura de pantalla del sistema para su inspección técnica.
-- Si deseas formular una corrección en base de datos o archivos, recuerda activar el modo **Plan & Build (/plan)** en la cabecera.`;
+  // 11. Respuesta conversacional natural por defecto (SIN plantillas robóticas ni viñetas de formulario)
+  return `Entendido. Cuéntame un poco más sobre lo que necesitas revisar en ${environmentName} (por ejemplo, el módulo, tabla o función de SismaSalud) y lo miramos juntos.`;
 }
 
 /**
@@ -369,8 +380,8 @@ async function runStaffAgy(
   return new Promise<{ text: string; conversationId?: string }>((resolve, reject) => {
     let child: ChildProcess;
     try {
-      if (!fs.existsSync(env.agentWorkspace)) {
-        fs.mkdirSync(env.agentWorkspace, { recursive: true });
+      if (!fsSync.existsSync(env.agentWorkspace)) {
+        fsSync.mkdirSync(env.agentWorkspace, { recursive: true });
       }
       child = spawn(binary, args, {
         cwd: env.agentWorkspace,
@@ -654,8 +665,20 @@ ${content || '(El consultor adjuntó una imagen para revisión técnica)'}
         });
       }
     } catch (agyErr) {
-      console.warn('Fallo en llamada a agy CLI para consultor, usando fallback técnico:', (agyErr as Error).message || agyErr);
-      agentResponseText = generateTechnicalMockResponse(content, environmentName);
+      console.warn('Fallo en llamada a agy CLI para consultor:', (agyErr as Error).message || agyErr);
+
+      // Si existe GEMINI_API_KEY (por ejemplo en Railway), usar Google Gemini directamente
+      const apiKey = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+      if (apiKey) {
+        try {
+          agentResponseText = await callGeminiDirect(fullPrompt, apiKey);
+        } catch (apiErr) {
+          console.warn('Aviso en llamada a Gemini API directa:', (apiErr as Error).message || apiErr);
+          agentResponseText = generateTechnicalMockResponse(content, environmentName);
+        }
+      } else {
+        agentResponseText = generateTechnicalMockResponse(content, environmentName);
+      }
     }
   }
 

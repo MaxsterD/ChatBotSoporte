@@ -26,6 +26,7 @@ const rawSchema = z.object({
   AGENT_EXTRA_DIRS: z.string().default(''),
   AGENT_MAX_CONCURRENCY: z.coerce.number().default(2),
   AGENT_MAX_MESSAGE_CHARS: z.coerce.number().default(4000),
+  GEMINI_API_KEY: z.string().optional().default(''),
   SISMA_DB_ENABLE_RO: z
     .enum(['true', 'false', '1', '0'])
     .default('true')
