@@ -1,5 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs';
 import { z } from 'zod';
 import { env, serverRoot } from '../env';
 import { AgentError, type AgentAnalysis, type AgentTurnInput, type AgentTurnResult } from './types';
@@ -115,13 +116,38 @@ let cachedBinary: string | null = null;
 
 export function resolveAgyBinary() {
   if (cachedBinary) return cachedBinary;
-  const configured = env.AGY_BIN;
+  let configured = env.AGY_BIN;
+  if (process.platform !== 'win32' && configured.endsWith('.exe')) {
+    configured = configured.replace(/\.exe$/i, '');
+  }
   if (configured.includes('\\') || configured.includes('/')) {
     cachedBinary = configured;
     return configured;
   }
   if (process.platform === 'win32') {
     const result = spawnSync('where.exe', [configured], { encoding: 'utf8', timeout: 10_000 });
+    const found = (result.stdout ?? '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)[0];
+    if (found) {
+      cachedBinary = found;
+      return found;
+    }
+  } else {
+    const home = process.env.HOME || '/root';
+    const standardPaths = [
+      path.join(home, '.local', 'bin', configured),
+      `/usr/local/bin/${configured}`,
+      `/usr/bin/${configured}`,
+    ];
+    for (const p of standardPaths) {
+      if (fs.existsSync(p)) {
+        cachedBinary = p;
+        return p;
+      }
+    }
+    const result = spawnSync('which', [configured], { encoding: 'utf8', timeout: 10_000 });
     const found = (result.stdout ?? '')
       .split(/\r?\n/)
       .map((line) => line.trim())

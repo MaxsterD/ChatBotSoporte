@@ -18,7 +18,7 @@ const rawSchema = z.object({
   ACCESS_TOKEN_TTL: z.string().default('30m'),
   REFRESH_TOKEN_DAYS: z.coerce.number().default(14),
   AGENT_MODE: z.enum(['agy', 'mock']).default('agy'),
-  AGY_BIN: z.string().default('agy.exe'),
+  AGY_BIN: z.string().default(process.platform === 'win32' ? 'agy.exe' : 'agy'),
   AGY_MODEL: z.string().default('gemini-3.8-flash-medium'),
   AGY_FALLBACK_MODELS: z.string().default(''),
   AGY_TIMEOUT_MS: z.coerce.number().default(120_000),
