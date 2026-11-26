@@ -5,7 +5,7 @@
     "buildCommand": "bash ./scripts/install-agy.sh || true && npm run setup && npm run build"
   },
   "deploy": {
-    "startCommand": "npm start",
+    "startCommand": "bash ./scripts/install-agy.sh || true; npm start",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }

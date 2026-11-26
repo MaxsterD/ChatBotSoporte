@@ -200,7 +200,32 @@ export async function deleteStaffSession(sessionId: string, consultantId: string
  * Genera una respuesta técnica realista simulada cuando AGENT_MODE=mock o como fallback.
  */
 function generateTechnicalMockResponse(userMessage: string, environmentName: string): string {
-  const lower = userMessage.toLowerCase();
+  const lower = userMessage.toLowerCase().trim();
+
+  // 1. Saludos y mensajes de cortesía comunes (responder como chat natural)
+  const isGreeting = /^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey|saludos|qu[eé] tal|qu[eé] hubo)\b/i.test(lower);
+  if (isGreeting && lower.split(/\s+/).length <= 6) {
+    return `¡Hola! ¿En qué puedo colaborarte hoy?
+
+Estoy listo como tu copiloto técnico para **${environmentName}**. En este modo de consulta libre podemos conversar directamente sobre:
+- Estructura y consultas de la base de datos de SismaSalud (\`sis_maes\`, \`sis_deta\`, \`contratos\`, etc.).
+- Controladores y lógica PHP de facturación, citas, glosas o historias clínicas.
+- Diagnóstico de incidencias o dudas sobre el sistema.
+
+Cuéntame qué caso o módulo deseas revisar.`;
+  }
+
+  // 2. Preguntas generales sobre capacidades o rol
+  if (/qu[eé] puedes hacer|c[oó]mo funciona|qui[eé]n eres|ayuda/i.test(lower) && lower.split(/\s+/).length <= 8) {
+    return `Soy el **Copiloto Técnico de Soporte SismaSalud** (en modo chat interactivo).
+
+Podemos hablar libremente como en una terminal de Antigravity CLI:
+1. **Consultas Técnicas**: Hazme cualquier pregunta sobre tablas, flujos de facturación, tarifas SOAT/ISS o código PHP.
+2. **Diagnóstico**: Si tienes un número de factura, mensaje de error o captura de pantalla, compártemela para analizarla.
+3. **Plan & Build (/plan)**: Si decides aplicar un cambio en la base de datos o en los archivos, activa el modo Plan para estructurarlo, ajustarlo y ejecutarlo con respaldo.
+
+¿Por dónde empezamos?`;
+  }
 
   if (lower.includes('modifica') || lower.includes('cambia') || lower.includes('ajusta') || lower.includes('reestructura') || lower.includes('en vez de')) {
     return `### Plan Reestructurado según tus Indicaciones (${environmentName})
@@ -291,29 +316,16 @@ Revisa \`CtrlAgendaMedica.php\` en la ruta de fuentes:
 - Comprobar que no exista concurrencia de doble agendamiento en el mismo intervalo de minutos.`;
   }
 
-  return `### Análisis Técnico para Soporte (${environmentName})
+  return `### Copiloto Técnico (${environmentName})
 
-He procesado tu consulta técnica:
-
+He recibido tu mensaje:
 > "${userMessage}"
 
-#### 1. Diagnóstico y Contexto
-- **Entorno evaluado**: \`${environmentName}\`
-- **Revisión de tablas sugerida**: Para analizar este comportamiento, examina las tablas maestras correspondientes (\`sis_maes\`, \`sis_deta\`, \`sis_paci\` o \`sis_menu\`).
-
-#### 2. Query de Verificación
-\`\`\`sql
--- Consulta de inspección de parámetros y configuración
-SELECT TOP 20 
-    parametro, valor, modulo, descripcion
-FROM parametrosGenerales WITH(NOLOCK)
-WHERE parametro LIKE '%ERROR%' OR modulo LIKE '%SISTEMA%';
-\`\`\`
-
-#### 3. Recomendación de Solución
-1. Revisa los logs de errores PHP en la carpeta \`logs/\` o en el visor de sucesos.
-2. Si el problema se generó tras una actualización de tarifas o contratos, valida la vigencia en la tabla \`contratos\`.
-3. Si necesitas que profundice en un script o procedimiento específico, puedes indicarme el nombre de la tabla o adjuntarme una captura de la pantalla.`;
+Para asistirte mejor sobre este punto en **${environmentName}**:
+- Si deseas diagnosticar un caso o error puntual, indícame el número de estudio, módulo afectado o consulta SQL que estés revisando.
+- Si prefieres que analicemos un archivo de código PHP o procedimiento de SismaSalud, compárteme su nombre o función.
+- También puedes adjuntar una captura de pantalla del sistema para su inspección técnica.
+- Si deseas formular una corrección en base de datos o archivos, recuerda activar el modo **Plan & Build (/plan)** en la cabecera.`;
 }
 
 /**
@@ -357,10 +369,16 @@ async function runStaffAgy(
   return new Promise<{ text: string; conversationId?: string }>((resolve, reject) => {
     let child: ChildProcess;
     try {
+      if (!fs.existsSync(env.agentWorkspace)) {
+        fs.mkdirSync(env.agentWorkspace, { recursive: true });
+      }
       child = spawn(binary, args, {
         cwd: env.agentWorkspace,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+        },
       });
     } catch (err) {
       reject(err);
@@ -369,6 +387,7 @@ async function runStaffAgy(
 
     let resultResponse = '';
     let detectedConversationId = conversationId;
+    let accumulatedDelta = '';
     let buffer = '';
     let stderr = '';
 
@@ -396,13 +415,21 @@ async function runStaffAgy(
               detectedConversationId = event.conversationId.trim();
             }
 
-            const type = event.type;
-            if (type === 'result') {
+            const eventType = event.event ?? event.type;
+            if (eventType === 'step_update') {
+              const su = event.step_update && typeof event.step_update === 'object' ? (event.step_update as Record<string, unknown>) : {};
+              if (typeof su.text_delta === 'string') {
+                accumulatedDelta += su.text_delta;
+              }
+            } else if (eventType === 'result') {
               const resObj = event.result && typeof event.result === 'object' ? (event.result as Record<string, unknown>) : {};
               if (typeof resObj.response === 'string') {
                 resultResponse = resObj.response;
               } else if (typeof event.response === 'string') {
                 resultResponse = event.response;
+              }
+              if (typeof resObj.conversation_id === 'string' && resObj.conversation_id.trim()) {
+                detectedConversationId = resObj.conversation_id.trim();
               }
             } else if (typeof event.response === 'string') {
               resultResponse = event.response;
@@ -424,8 +451,9 @@ async function runStaffAgy(
 
     child.on('close', (code) => {
       clearTimeout(timer);
-      if (resultResponse.trim()) {
-        resolve({ text: resultResponse.trim(), conversationId: detectedConversationId });
+      const chosenText = resultResponse.trim() || accumulatedDelta.trim();
+      if (chosenText) {
+        resolve({ text: chosenText, conversationId: detectedConversationId });
       } else {
         // Si no capturó evento result pero terminó bien o con buffer
         if (buffer.trim()) {
@@ -575,23 +603,19 @@ REGLAS DE FORMULACIÓN Y REESTRUCTURACIÓN:
 El sistema leerá este bloque y le presentará al consultor los controles para modificar el plan y el botón interactivo "⚡ Build (Aprobar y Ejecutar)" para aplicarlo en el entorno con respaldo de seguridad.
 `
     : `
-[MODO CONSULTA LIBRE ACTIVADO]
-Estás en modo de diálogo técnico libre (equivalente al chat interactivo de Antigravity):
-- Responde de forma analítica, explicativa y didáctica sobre arquitectura, flujo de datos, procedimientos y lógica de SismaSalud.
-- Puedes sugerir consultas SELECT de diagnóstico o fragmentos de código formativos con bloques de código estándar (\`\`\`sql, \`\`\`php).
-- NO generes un bloque \`\`\`plan a menos que el usuario active explícitamente el modo Plan o solicite una acción de Build.
+[MODO CONSULTA LIBRE (CHAT INTERACTIVO ESTILO ANTIGRAVITY)]
+Estás en una sesión de diálogo técnico interactivo y libre con un consultor/ingeniero de SismaSalud (como una conversación normal en Antigravity CLI):
+- Comunícate de manera natural, conversacional, amigable y profesional.
+- Si el consultor solo te saluda (ej. "Hola", "Buenas", "¿Qué tal?"), salúdalo amablemente de forma breve y pregúntale en qué caso, módulo o situación van a trabajar hoy. NO generes diagnósticos rígidos ni consultas SQL cuando el usuario solo te está saludando o haciendo charla inicial.
+- Ofrece tu conocimiento técnico profundo en SismaSalud (tablas sis_*, controladores PHP, facturación, citas, glosas, etc.) cuando el usuario plantee una pregunta técnica, describa un problema o solicite una consulta/código.
+- Mantén un tono fluido de colega de ingeniería senior: claro, conciso, directo y útil.
+- NO generes bloques \`\`\`plan a menos que el usuario active explícitamente el modo Plan o pida estructurar un plan de acción.
 `;
 
   // 6. Construir Prompt Técnico Senior
   const fullPrompt = `
 [ROL Y DIRECTIVAS]
-Eres el AGENTE TÉCNICO SENIOR Y COPILOTO DE SOPORTE INTERNO de SismaSalud.
-Estás dialogando DIRECTAMENTE con un CONSULTOR / INGENIERO DE SOPORTE técnico de SismaSalud (personal técnico interno, NO con un cliente final).
-Tu objetivo es responder con total profundidad técnica y SIN RESTRICCIONES para ayudar al consultor a solucionar los problemas de los clientes:
-- Proporciona consultas SQL exactas (SELECT, UPDATE, INSERT o scripts de diagnóstico/corrección), nombres de tablas (ej. contratos, sis_deta, sis_maes, sis_paci, pagos, sis_menu) y procedimientos almacenados (sp...).
-- Proporciona nombres de archivos PHP (ej. CtrlFacturacion.php, ModelFacturacion.php), nombres de funciones, validaciones y líneas de código sugeridas.
-- Responde en formato Markdown técnico enriquecido con bloques de código (\\\`\\\`\\\`sql, \\\`\\\`\\\`php, \\\`\\\`\\\`bash), listas y tablas explicativas.
-- Explica la causa raíz técnica y la lógica interna de negocio de SismaSalud.
+Eres el COPILOTO TÉCNICO de SismaSalud. Estás dialogando DIRECTAMENTE con un CONSULTOR o INGENIERO DE SOPORTE técnico de SismaSalud en un chat interactivo.
 ${planDirective}
 [ENTORNO SELECCIONADO: ${environmentName}]
 ${dbInfo}
@@ -599,7 +623,7 @@ ${contextDetails}
 ${imagePromptBlock}
 ${historyText ? `\n[HISTORIAL RECIENTE DEL DIÁLOGO]\n${historyText}\n` : ''}
 
-[CONSULTA TÉCNICA DEL CONSULTOR]
+[MENSAJE DEL CONSULTOR]
 ${content || '(El consultor adjuntó una imagen para revisión técnica)'}
 `.trim();
 
@@ -630,7 +654,7 @@ ${content || '(El consultor adjuntó una imagen para revisión técnica)'}
         });
       }
     } catch (agyErr) {
-      console.warn('Fallo en llamada a agy CLI para consultor, usando fallback técnico:', agyErr);
+      console.warn('Fallo en llamada a agy CLI para consultor, usando fallback técnico:', (agyErr as Error).message || agyErr);
       agentResponseText = generateTechnicalMockResponse(content, environmentName);
     }
   }

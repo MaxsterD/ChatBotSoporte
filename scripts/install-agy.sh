@@ -27,9 +27,9 @@ fi
 
 echo "Descargando e instalando Antigravity CLI..."
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL https://antigravity.google/cli/install.sh | bash || true
+  curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /usr/local/bin || curl -fsSL https://antigravity.google/cli/install.sh | bash || true
 elif command -v wget >/dev/null 2>&1; then
-  wget -qO- https://antigravity.google/cli/install.sh | bash || true
+  wget -qO- https://antigravity.google/cli/install.sh | bash -s -- --dir /usr/local/bin || wget -qO- https://antigravity.google/cli/install.sh | bash || true
 fi
 
 for bin_path in "$HOME/.local/bin/agy" "/root/.local/bin/agy"; do

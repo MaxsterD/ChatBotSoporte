@@ -305,6 +305,17 @@ test('Gestión de Entornos de Cliente y Copiloto IA', async (t) => {
       // Debe responder sin restricciones técnicas (incluyendo código SQL / PHP)
       assert.ok(turnResult.agentMessage.content.includes('sis_maes') || turnResult.agentMessage.content.includes('SQL'));
 
+      // 2a. Enviar saludo en modo CONSULTA (debe responder de forma natural y conversacional, sin diagnósticos rígidos)
+      const greetingResult = await sendStaffMessage({
+        sessionId: session.id,
+        consultantId: consultant.id,
+        content: 'Hola',
+        mode: 'CHAT',
+      });
+      assert.ok(greetingResult.agentMessage);
+      assert.ok(greetingResult.agentMessage.content.toLowerCase().includes('hola'));
+      assert.ok(!greetingResult.agentMessage.planAction);
+
       // 2b. Enviar mensaje en modo PLAN para validar generación y ejecución de plan (Build)
       const planTurnResult = await sendStaffMessage({
         sessionId: session.id,
@@ -390,7 +401,7 @@ test('Gestión de Entornos de Cliente y Copiloto IA', async (t) => {
 
       // 4. Obtener detalle de sesión con mensajes acumulados
       const detail = await getStaffSession(session.id, consultant.id);
-      assert.equal(detail.messages.length, 6); // 3 consultor + 3 agente
+      assert.equal(detail.messages.length, 8); // 4 consultor + 4 agente
 
       // 4b. Asociar un agyConversationId para verificar que deleteStaffSession sincroniza borrado
       await prisma.staffAgentSession.update({
