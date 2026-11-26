@@ -1,2 +1,5 @@
 [phases.setup]
-nixPkgs = ["nodejs_22"]
+nixPkgs = ["nodejs_22", "curl", "bash"]
+cmds = [
+  "bash ./scripts/install-agy.sh || true"
+]
