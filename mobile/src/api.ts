@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSessionSync, persistSession, wipeStoredSession } from './session';
 import type { BusinessHoursStatus, ChatDetail, ChatSummary, Message, Session } from './types';
 
+export const ORACLE_CLOUD_URL = 'http://158.101.118.34';
 export const RAILWAY_DEFAULT_URL = 'https://chatbotsoporte-production.up.railway.app';
 export const RADMIN_DEFAULT_URL = 'http://26.237.103.241:4000';
 const SERVER_URL_KEY = 'soporte.server_url.v1';
@@ -18,7 +19,7 @@ function resolveDefaultApiUrl() {
   const host = hostUri.split(':')[0];
   if (host && host !== 'localhost' && host !== '127.0.0.1') return `http://${host}:4000`;
 
-  return RAILWAY_DEFAULT_URL;
+  return ORACLE_CLOUD_URL;
 }
 
 export let API_URL = resolveDefaultApiUrl();

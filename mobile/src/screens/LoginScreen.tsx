@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { API_URL, RAILWAY_DEFAULT_URL, RADMIN_DEFAULT_URL, setCustomApiUrl } from '../api';
+import { API_URL, ORACLE_CLOUD_URL, RAILWAY_DEFAULT_URL, RADMIN_DEFAULT_URL, setCustomApiUrl } from '../api';
 import { useSession } from '../context/SessionContext';
 import { useTheme } from '../context/ThemeContext';
 import { radius, type ThemeColors } from '../theme';
@@ -306,10 +306,16 @@ export function LoginScreen() {
             <View style={styles.quickPresets}>
               <Text style={styles.presetsLabel}>Accesos rápidos:</Text>
               <Pressable
+                onPress={() => setEditingUrl(ORACLE_CLOUD_URL)}
+                style={styles.presetChip}
+              >
+                <Text style={styles.presetChipText}>☁️ Oracle Cloud ({ORACLE_CLOUD_URL})</Text>
+              </Pressable>
+              <Pressable
                 onPress={() => setEditingUrl(RAILWAY_DEFAULT_URL)}
                 style={styles.presetChip}
               >
-                <Text style={styles.presetChipText}>☁️ Railway Producción ({RAILWAY_DEFAULT_URL})</Text>
+                <Text style={styles.presetChipText}>🚂 Railway Producción ({RAILWAY_DEFAULT_URL})</Text>
               </Pressable>
               <Pressable
                 onPress={() => setEditingUrl('http://localhost:4000')}
