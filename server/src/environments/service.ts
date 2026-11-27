@@ -5,6 +5,7 @@ import { prisma } from '../db';
 import { decryptCredential, encryptCredential } from '../lib/crypto';
 import { badRequest, notFound } from '../lib/errors';
 import type { ClientEnvironment } from '@prisma/client';
+import { resolveEnvironmentSourcePath, testSourcePathAccess, unmountSmbShare } from './smbService';
 
 export interface EnvironmentInput {
   name: string;
@@ -158,6 +159,9 @@ export async function deleteEnvironment(id: string) {
   const env = await prisma.clientEnvironment.findUnique({ where: { id } });
   if (!env) throw notFound('Entorno no encontrado');
 
+  // Si había un montaje CIFS activo en Linux, desmontar
+  await unmountSmbShare(path.posix.join('/mnt/smb_sources', id));
+
   // Desvincular usuarios y chats antes de eliminar
   await prisma.user.updateMany({ where: { environmentId: id }, data: { environmentId: null } });
   await prisma.chat.updateMany({ where: { environmentId: id }, data: { environmentId: null } });
@@ -265,41 +269,24 @@ export async function testSourceConnection(params: {
   sourcePath: string;
   sourceType?: string;
   environmentId?: string;
+  smbUser?: string;
+  smbPassword?: string;
+  smbDomain?: string;
 }) {
-  let targetPath = params.sourcePath;
-
   if (params.environmentId) {
     const env = await prisma.clientEnvironment.findUnique({ where: { id: params.environmentId } });
     if (!env) throw notFound('Entorno no encontrado');
-    targetPath = env.sourcePath;
+    return testSourcePathAccess({
+      sourcePath: env.sourcePath,
+      sourceType: env.sourceType,
+      environmentId: env.id,
+      smbUser: env.smbUser || undefined,
+      smbDomain: env.smbDomain || undefined,
+      smbPassword: env.smbPasswordEncrypted ? decryptCredential(env.smbPasswordEncrypted) : undefined,
+    });
   }
 
-  try {
-    const stat = await fs.stat(targetPath);
-    if (!stat.isDirectory()) {
-      return {
-        success: false,
-        error: 'La ruta existe pero no es un directorio',
-        message: `La ruta "${targetPath}" no es un directorio válido.`,
-      };
-    }
-
-    const entries = await fs.readdir(targetPath, { withFileTypes: true });
-    const sampleFiles = entries.slice(0, 10).map((e) => `${e.name}${e.isDirectory() ? '/' : ''}`);
-
-    return {
-      success: true,
-      totalEntries: entries.length,
-      sampleFiles,
-      message: `Ruta accesible. Se encontraron ${entries.length} elementos en el directorio.`,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: (error as Error).message,
-      message: `No se pudo acceder a la ruta de fuentes: ${(error as Error).message}`,
-    };
-  }
+  return testSourcePathAccess(params);
 }
 
 // Cache de pools activos para consultas eficientes de soporte
@@ -384,12 +371,13 @@ export async function getEnvironmentSupportContext(environmentId: string, userTe
     // Si la BD de la clínica no responde temporalmente, no interrumpimos el turno
   }
 
-  // Verificar si la ruta de fuentes del entorno existe
+  // Verificar si la ruta de fuentes del entorno existe (resolviendo montaje SMB si aplica)
   let sourceDir: string | null = null;
   try {
-    const stat = await fs.stat(env.sourcePath);
+    const effectiveSource = await resolveEnvironmentSourcePath(env);
+    const stat = await fs.stat(effectiveSource);
     if (stat.isDirectory()) {
-      sourceDir = env.sourcePath;
+      sourceDir = effectiveSource;
       contextText += `- Código fuente accesible en: ${env.sourcePath}\n`;
     }
   } catch {

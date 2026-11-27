@@ -12,6 +12,7 @@ import { sismaDb } from '../agent/db/sismaDb';
 import { resolveAgyBinary } from '../agent/bridge';
 import { deleteAgyConversation, purgeOrphanAgyConversations } from '../agent/conversationManager';
 import { getEnvironmentDbPool } from '../environments/service';
+import { resolveEnvironmentSourcePath } from '../environments/smbService';
 
 export interface ProposedPlanAction {
   type: 'SQL' | 'FILE';
@@ -537,12 +538,13 @@ export async function sendStaffMessage(params: {
   if (session.environment) {
     const envData = session.environment;
     environmentName = envData.name;
-    sourceDir = envData.sourcePath;
+    const effectiveSource = await resolveEnvironmentSourcePath(envData);
+    sourceDir = effectiveSource;
     dbInfo = `SQL Server ${envData.dbServer}:${envData.dbPort} / Base de Datos: ${envData.dbDatabase}`;
-    extraDirs.push(envData.sourcePath);
+    if (effectiveSource) extraDirs.push(effectiveSource);
     contextDetails = `El consultor seleccionó el entorno de la institución "${envData.name}".
 - Base de Datos remota: ${envData.dbDatabase} en ${envData.dbServer} (Usuario SQL: ${envData.dbUser}).
-- Ruta de Código Fuente SMB / Red: ${envData.sourcePath}.`;
+- Ruta de Código Fuente SMB / Red: ${envData.sourcePath}${effectiveSource !== envData.sourcePath ? ` (montada en ${effectiveSource})` : ''}.`;
   } else {
     const rawLocal = await getRawLocalEnvironmentConfig();
     sourceDir = rawLocal.sourcePath;
@@ -866,7 +868,7 @@ export async function executeStaffPlanAction(params: {
 
       let sourcePath = '';
       if (session.environment) {
-        sourcePath = session.environment.sourcePath;
+        sourcePath = await resolveEnvironmentSourcePath(session.environment);
       } else {
         const rawLocal = await getRawLocalEnvironmentConfig();
         sourcePath = rawLocal.sourcePath;

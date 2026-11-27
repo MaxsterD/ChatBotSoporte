@@ -4,6 +4,7 @@ import sql from 'mssql';
 import { prisma } from '../db';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { getEnvironmentDbPool } from '../environments/service';
+import { resolveEnvironmentSourcePath } from '../environments/smbService';
 import { runAgent } from '../agent/bridge';
 import { emitToConsultants } from '../realtime/io';
 import type { AuthUser } from '../lib/auth';
@@ -158,10 +159,11 @@ async function generateInitialCopilotDiagnosis(
 
   let sourceFilesContext = '';
   try {
-    const entries = await fs.readdir(env.sourcePath);
+    const effectiveSource = await resolveEnvironmentSourcePath(env);
+    const entries = await fs.readdir(effectiveSource);
     const relevant = entries.filter((f) => /\.(php|sql|js)$/i.test(f)).slice(0, 6);
     if (relevant.length > 0) {
-      sourceFilesContext = `Archivos clave en ${env.sourcePath}: ${relevant.join(', ')}`;
+      sourceFilesContext = `Archivos clave en ${env.name}: ${relevant.join(', ')}`;
     }
   } catch {
     sourceFilesContext = `Ruta de fuentes no accesible temporalmente.`;

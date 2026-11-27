@@ -126,6 +126,9 @@ export async function environmentRoutes(app: FastifyInstance) {
         environmentId: z.string().uuid().optional(),
         sourcePath: z.string().optional().default(''),
         sourceType: z.string().optional(),
+        smbUser: z.string().optional(),
+        smbPassword: z.string().optional(),
+        smbDomain: z.string().optional(),
       }),
       request.body ?? {},
     );
