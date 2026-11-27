@@ -82,8 +82,8 @@ export async function resolveEnvironmentSourcePath(env: {
       const user = env.smbUser?.trim() || 'guest';
       const domain = env.smbDomain?.trim() ? `,domain=${env.smbDomain.trim()}` : '';
 
-      // Montaje con cifs en modo solo lectura (ro) para seguridad y compatibilidad
-      const opts = `username=${user},password=${password}${domain},iocharset=utf8,ro`;
+      // Montaje con cifs en modo lectura/escritura (rw) para soportar el modo Plan & Build
+      const opts = `username=${user},password=${password}${domain},iocharset=utf8,rw,file_mode=0775,dir_mode=0775,uid=1000,gid=1000`;
       await execAsync(`sudo mount -t cifs "${parsed.linuxUnc}" "${mountPoint}" -o "${opts}"`);
     }
 
