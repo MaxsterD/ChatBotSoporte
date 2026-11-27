@@ -83,7 +83,8 @@ export async function resolveEnvironmentSourcePath(env: {
       const domain = env.smbDomain?.trim() ? `,domain=${env.smbDomain.trim()}` : '';
 
       // Montaje con cifs en modo lectura/escritura (rw) para soportar el modo Plan & Build
-      const opts = `username=${user},password=${password}${domain},iocharset=utf8,rw,file_mode=0775,dir_mode=0775,uid=1000,gid=1000`;
+      // Se utiliza noperm,file_mode=0777,dir_mode=0777 para delegar permisos al servidor SMB remoto y permitir escritura al proceso local
+      const opts = `username=${user},password=${password}${domain},iocharset=utf8,rw,noperm,file_mode=0777,dir_mode=0777`;
       await execAsync(`sudo mount -t cifs "${parsed.linuxUnc}" "${mountPoint}" -o "${opts}"`);
     }
 
@@ -135,7 +136,7 @@ export async function testSourcePathAccess(params: {
         const user = params.smbUser?.trim() || 'guest';
         const pass = params.smbPassword || '';
         const domain = params.smbDomain?.trim() ? `,domain=${params.smbDomain.trim()}` : '';
-        const opts = `username=${user},password=${pass}${domain},iocharset=utf8,ro`;
+        const opts = `username=${user},password=${pass}${domain},iocharset=utf8,rw,noperm,file_mode=0777,dir_mode=0777`;
         await execAsync(`sudo mount -t cifs "${parsed.linuxUnc}" "${mountPoint}" -o "${opts}"`);
       }
 
